@@ -1,10 +1,14 @@
 "use client";
 
 import { Box } from "lucide-react";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { authClient } from "@/lib/auth-client";
 import Link from "next/link";
 
 export function Navbar() {
+  const { data: session, isPending } = authClient.useSession();
+
   return (
     <nav className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 mx-auto ">
       <div className="container flex h-16 max-w-7xl items-center justify-between mx-auto">
@@ -23,15 +27,34 @@ export function Navbar() {
 
         {/* Right Section */}
         <div className="flex items-center gap-3">
-          <Link
-            href="/auth/register"
-            className={buttonVariants({ variant: "secondary" })}
-          >
-            Sign up
-          </Link>
-          <Link href="/auth/login" className={buttonVariants()}>
-            Login
-          </Link>
+          <ThemeToggle />
+          {isPending ? null : session ? (
+            <>
+              <Link href="/dashboard" className={buttonVariants()}>
+                Dashboard
+              </Link>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  await authClient.signOut();
+                }}
+              >
+                Sign out
+              </Button>
+            </>
+          ) : (
+            <>
+              <Link
+                href="/auth/register"
+                className={buttonVariants({ variant: "secondary" })}
+              >
+                Sign up
+              </Link>
+              <Link href="/auth/login" className={buttonVariants()}>
+                Login
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </nav>
