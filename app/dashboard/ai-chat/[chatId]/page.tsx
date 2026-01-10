@@ -61,7 +61,7 @@ export default function ChatPageClient() {
         ? convertDbMessagesToUIMessages(chat.messages)
         : [],
       transport: {
-        async sendMessages({ messages, abortSignal }) {
+        async sendMessages({ messages, abortSignal, trigger }) {
           const apiMessages = messages.map((m) => ({
             id: m.id,
             role: m.role,
@@ -73,13 +73,23 @@ export default function ChatPageClient() {
               .join(""),
           }));
 
-          const result = await client.aiChat.send(
-            {
-              chatId,
-              messages: apiMessages,
-            },
-            { signal: abortSignal }
-          );
+          // Use the appropriate endpoint based on trigger
+          const result =
+            trigger === "regenerate-message"
+              ? await client.aiChat.regenerate(
+                  {
+                    chatId,
+                    messages: apiMessages,
+                  },
+                  { signal: abortSignal }
+                )
+              : await client.aiChat.send(
+                  {
+                    chatId,
+                    messages: apiMessages,
+                  },
+                  { signal: abortSignal }
+                );
 
           return eventIteratorToUnproxiedDataStream(result);
         },

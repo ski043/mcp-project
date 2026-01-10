@@ -87,7 +87,7 @@ export const createChat = authorized
   })
   .input(createChatSchema)
   .handler(async ({ context, input }) => {
-    const model = input.model ?? "anthropic/claude-sonnet-4-20250514";
+    const model = input.model ?? AVAILABLE_MODELS[0].id;
     const chat = await prisma.chat.create({
       data: {
         userId: context.user.id,
