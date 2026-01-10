@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.28",
+    "@arcadeai/arcadejs": "^1.15.0",
     "@base-ui/react": "^1.0.0",
     "@hookform/resolvers": "^5.2.2",
     "@orpc/client": "^1.13.2",
