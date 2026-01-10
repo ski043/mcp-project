@@ -37,7 +37,7 @@ function convertDbMessagesToUIMessages(dbMessages: DbMessage[]): UIMessage[] {
   }));
 }
 
-export function ChatPageClient() {
+export default function ChatPageClient() {
   const params = useParams();
   const chatId = params.chatId as string;
   const queryClient = useQueryClient();

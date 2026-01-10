@@ -9,6 +9,7 @@ import {
   updateChatSchema,
   searchChatsSchema,
   sendMessageSchema,
+  uiMessageSchema,
 } from "../schemas/ai-chat";
 
 import { authorized } from "../middlewares/auth";
@@ -115,7 +116,7 @@ export const updateChat = authorized
     }
 
     const updated = await prisma.chat.update({
-      where: { id: input.chatId },
+      where: { id: input.chatId, userId: context.user.id },
       data: {
         ...(input.title !== undefined && { title: input.title }),
         ...(input.model !== undefined && { model: input.model }),
@@ -145,7 +146,7 @@ export const deleteChat = authorized
     }
 
     await prisma.chat.delete({
-      where: { id: input.chatId },
+      where: { id: input.chatId, userId: context.user.id },
     });
 
     return { success: true };
@@ -252,13 +253,17 @@ export const sendMessage = authorized
       model: chat.model,
       messages: allMessages,
       onFinish: async ({ text }) => {
-        await prisma.message.create({
-          data: {
-            chatId: input.chatId,
-            role: "assistant",
-            content: text,
-          },
-        });
+        try {
+          await prisma.message.create({
+            data: {
+              chatId: input.chatId,
+              role: "assistant",
+              content: text,
+            },
+          });
+        } catch (error) {
+          console.error("Failed to persist assistant message:", error);
+        }
       },
     });
 
@@ -273,7 +278,7 @@ export const regenerateMessage = authorized
     method: "POST",
     summary: "Regenerate last response",
   })
-  .input(z.object({ chatId: z.string().uuid(), messages: z.array(z.any()) }))
+  .input(z.object({ chatId: z.uuid(), messages: z.array(uiMessageSchema) }))
   .handler(async ({ context, input }) => {
     const chat = await prisma.chat.findFirst({
       where: { id: input.chatId, userId: context.user.id },
@@ -316,13 +321,17 @@ export const regenerateMessage = authorized
       model: chat.model,
       messages: allMessages,
       onFinish: async ({ text }) => {
-        await prisma.message.create({
-          data: {
-            chatId: input.chatId,
-            role: "assistant",
-            content: text,
-          },
-        });
+        try {
+          await prisma.message.create({
+            data: {
+              chatId: input.chatId,
+              role: "assistant",
+              content: text,
+            },
+          });
+        } catch (error) {
+          console.error("Failed to persist assistant message:", error);
+        }
       },
     });
 

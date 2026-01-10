@@ -2,29 +2,24 @@
 // Format: provider/model-name
 export const AVAILABLE_MODELS = [
   {
-    id: "anthropic/claude-sonnet-4-20250514",
-    name: "Claude Sonnet 4",
-    description: "Latest Claude 4 Sonnet model",
+    id: "google/gemini-2.5-pro",
+    name: "Gemini 2.5 Pro",
+    description: "Latest Gemini 2.5 Pro model",
   },
   {
-    id: "anthropic/claude-3-5-haiku-latest",
-    name: "Claude 3.5 Haiku",
-    description: "Fast and affordable",
+    id: "anthropic/claude-sonnet-4.5",
+    name: "Claude Sonnet 4.5",
+    description: "Latest Claude Sonnet 4.5 model",
   },
   {
-    id: "openai/gpt-4o",
-    name: "GPT-4o",
-    description: "OpenAI's flagship model",
+    id: "openai/gpt-5.2",
+    name: "GPT-5.2",
+    description: "Latest GPT-5.2 model",
   },
   {
-    id: "deepseek/deepseek-v3.2-thinking",
-    name: "DeepSeek V3.2 Thinking",
-    description: "128K context, reasoning model",
-  },
-  {
-    id: "zai/glm-4.6",
-    name: "GLM-4.6",
-    description: "Zhipu AI's latest model",
+    id: "deepseek/deepseek-v3",
+    name: "DeepSeek V3",
+    description: "Latest DeepSeek V3 model",
   },
 ] as const;
 

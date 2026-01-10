@@ -51,8 +51,9 @@ export function ChatInput({
     }
   };
 
-  const handleSubmitClick = () => {
+  const handleSubmitClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     if (status === "streaming") {
+      e.preventDefault();
       onStop();
     }
   };
