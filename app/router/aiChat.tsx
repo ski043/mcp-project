@@ -10,10 +10,7 @@ import {
   searchChatsSchema,
   sendMessageSchema,
 } from "../schemas/ai-chat";
-import {
-  captureServerEvent,
-  ServerAnalyticsEvents,
-} from "@/lib/analytics.server";
+
 import { authorized } from "../middlewares/auth";
 
 export const listChats = authorized
@@ -97,13 +94,6 @@ export const createChat = authorized
         systemPrompt: input.systemPrompt,
       },
     });
-
-    // Track chat creation
-    void captureServerEvent(
-      context.user.email,
-      ServerAnalyticsEvents.CHAT_CREATED,
-      { model }
-    );
 
     return { chat };
   });
