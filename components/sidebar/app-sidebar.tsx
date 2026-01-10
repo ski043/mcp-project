@@ -34,7 +34,7 @@ const data = {
     },
     {
       title: "Chat",
-      url: "/dashboard/chat",
+      url: "/dashboard/ai-chat",
       icon: MessageSquare,
     },
     {

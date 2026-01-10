@@ -1,7 +1,11 @@
+import "../lib/orpc.server"; // for pre-rendering
+
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ui/theme-provider";
+import { Providers } from "@/lib/providers";
+import { Toaster } from "@/components/ui/sonner";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -36,7 +40,10 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <main>{children}</main>
+          <Providers>
+            <main>{children}</main>
+          </Providers>
+          <Toaster closeButton position="top-center" />
         </ThemeProvider>
       </body>
     </html>
