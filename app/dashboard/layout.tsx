@@ -1,12 +1,18 @@
 import { AppSidebar } from "@/components/sidebar/app-sidebar";
 import { SiteHeader } from "@/components/sidebar/site-header";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { orpc } from "@/lib/orpc";
+import { getQueryClient, HydrateClient } from "@/lib/query/hydration";
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const queryClient = getQueryClient();
+
+  await queryClient.prefetchQuery(orpc.user.current.queryOptions());
+
   return (
     <SidebarProvider
       style={
@@ -16,7 +22,9 @@ export default function DashboardLayout({
         } as React.CSSProperties
       }
     >
-      <AppSidebar variant="inset" />
+      <HydrateClient client={queryClient}>
+        <AppSidebar variant="inset" />
+      </HydrateClient>
       <SidebarInset>
         <SiteHeader />
         <div className="flex flex-1 flex-col">

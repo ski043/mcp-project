@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-
+import { useSuspenseQuery } from "@tanstack/react-query";
 import {
   Sidebar,
   SidebarContent,
@@ -20,38 +20,29 @@ import {
 } from "lucide-react";
 import { NavMain } from "./nav-main";
 import { NavUser } from "./nav-user";
+import { orpc } from "@/lib/orpc";
 
-const data = {
-  user: {
-    name: "shadcn",
-    email: "m@example.com",
-    avatar: "/avatars/shadcn.jpg",
+const navMainItems = [
+  {
+    title: "Dashboard",
+    url: "/dashboard",
+    icon: LayoutDashboardIcon,
   },
-  navMain: [
-    {
-      title: "Dashboard",
-      url: "/dashboard",
-      icon: LayoutDashboardIcon,
-    },
-    {
-      title: "Chat",
-      url: "/dashboard/ai-chat",
-      icon: MessageSquare,
-    },
-    {
-      title: "Reports",
-      url: "/dashboard/reports",
-      icon: FileText,
-    },
-    {
-      title: "Arcade Test",
-      url: "/dashboard/arcade-test",
-      icon: FlaskConical,
-    },
-  ],
-};
+  {
+    title: "Chat",
+    url: "/dashboard/ai-chat",
+    icon: MessageSquare,
+  },
+  {
+    title: "Reports",
+    url: "/dashboard/reports",
+    icon: FileText,
+  },
+];
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const { data: user } = useSuspenseQuery(orpc.user.current.queryOptions());
+
   return (
     <Sidebar collapsible="offExamples" {...props}>
       <SidebarHeader>
@@ -77,10 +68,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={data.navMain} />
+        <NavMain items={navMainItems} />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={data.user} />
+        <NavUser user={user} navItems={navMainItems} />
       </SidebarFooter>
     </Sidebar>
   );
