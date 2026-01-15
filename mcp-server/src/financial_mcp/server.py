@@ -1,6 +1,15 @@
 """Financial MCP Server - Main entrypoint."""
 
 import sys
+from pathlib import Path
+
+# Add parent directory to path for module imports
+if __name__ == "__main__":
+    # When running directly, add src to path
+    src_dir = Path(__file__).parent.parent
+    if str(src_dir) not in sys.path:
+        sys.path.insert(0, str(src_dir))
+
 from arcade_mcp_server import MCPApp
 from financial_mcp.tools.company_info import register_company_info_tools
 from financial_mcp.tools.market_news import register_news_tools
@@ -21,13 +30,10 @@ register_news_tools(app)
 
 
 if __name__ == "__main__":
-    # Support both stdio and http transports
-    # Default to stdio if no argument provided
+    # Get transport from command line argument, default to "stdio"
+    # - "stdio" (default): Standard I/O for Claude Desktop, CLI tools, etc.
+    # - "http": HTTPS streaming for Cursor, VS Code, etc.
     transport = sys.argv[1] if len(sys.argv) > 1 else "stdio"
 
-    if transport == "http":
-        # HTTP mode for development with hot reload
-        app.run(transport="http", host="127.0.0.1", port=8000, reload=True)
-    else:
-        # stdio mode for production MCP clients
-        app.run(transport="stdio")
+    # Run the server
+    app.run(transport=transport, host="127.0.0.1", port=8000)
