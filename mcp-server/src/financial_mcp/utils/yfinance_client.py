@@ -2,7 +2,7 @@
 
 import yfinance as yf
 from typing import Dict, List, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class YFinanceClient:
@@ -177,7 +177,8 @@ class YFinanceClient:
                 publish_time = None
                 if article.get("providerPublishTime"):
                     publish_time = datetime.fromtimestamp(
-                        article["providerPublishTime"]
+                        article["providerPublishTime"],
+                        tz=timezone.utc
                     ).isoformat()
 
                 result.append({
