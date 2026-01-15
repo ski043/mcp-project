@@ -9,6 +9,7 @@ import {
   regenerateMessage,
   getChat,
 } from "./aiChat";
+import { getCurrentUser } from "./user";
 
 export const router = {
   aiChat: {
@@ -21,5 +22,8 @@ export const router = {
     models: getModels,
     send: sendMessage,
     regenerate: regenerateMessage,
+  },
+  user: {
+    current: getCurrentUser,
   },
 };

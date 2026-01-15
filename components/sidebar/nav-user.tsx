@@ -16,24 +16,46 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import {
-  BellIcon,
-  CreditCard,
-  DotSquare,
-  LogOutIcon,
-  UserCircle,
-} from "lucide-react";
+import { User } from "better-auth";
+import { ChevronsUpDown, LogOutIcon, LucideIcon } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { authClient } from "@/lib/auth-client";
+
+// Helper function to get user initials
+function getUserInitials(name: string): string {
+  return name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+type NavItem = {
+  title: string;
+  url: string;
+  icon?: LucideIcon;
+};
 
 export function NavUser({
   user,
+  navItems,
 }: {
-  user: {
-    name: string;
-    email: string;
-    avatar: string;
-  };
+  user: User;
+  navItems: NavItem[];
 }) {
   const { isMobile } = useSidebar();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    await authClient.signOut();
+    router.push("/auth/login");
+  };
+
+  const userInitials = getUserInitials(user.name);
+  const avatarSrc =
+    user.image || `https://api.dicebear.com/9.x/glass/svg?seed=${user.email}`;
 
   return (
     <SidebarMenu>
@@ -44,9 +66,15 @@ export function NavUser({
               size="lg"
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
-              <Avatar className="h-8 w-8 rounded-lg grayscale">
-                <AvatarImage src={user.avatar} alt={user.name} />
-                <AvatarFallback className="rounded-lg">CN</AvatarFallback>
+              <Avatar className="h-8 w-8 rounded-lg">
+                <AvatarImage
+                  src={avatarSrc}
+                  alt={user.name}
+                  className="rounded-lg"
+                />
+                <AvatarFallback className="rounded-lg">
+                  {userInitials}
+                </AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{user.name}</span>
@@ -54,7 +82,7 @@ export function NavUser({
                   {user.email}
                 </span>
               </div>
-              <DotSquare className="ml-auto size-4" />
+              <ChevronsUpDown className="ml-auto size-4" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -66,8 +94,14 @@ export function NavUser({
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                 <Avatar className="h-8 w-8 rounded-lg">
-                  <AvatarImage src={user.avatar} alt={user.name} />
-                  <AvatarFallback className="rounded-lg">CN</AvatarFallback>
+                  <AvatarImage
+                    src={avatarSrc}
+                    alt={user.name}
+                    className="rounded-lg"
+                  />
+                  <AvatarFallback className="rounded-lg">
+                    {userInitials}
+                  </AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{user.name}</span>
@@ -79,21 +113,17 @@ export function NavUser({
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem>
-                <UserCircle />
-                Account
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <CreditCard />
-                Billing
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <BellIcon />
-                Notifications
-              </DropdownMenuItem>
+              {navItems.map((item) => (
+                <DropdownMenuItem key={item.url} asChild>
+                  <Link href={item.url} className="flex items-center gap-2">
+                    {item.icon && <item.icon className="size-4" />}
+                    {item.title}
+                  </Link>
+                </DropdownMenuItem>
+              ))}
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={handleLogout}>
               <LogOutIcon />
               Log out
             </DropdownMenuItem>
