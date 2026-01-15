@@ -38,6 +38,11 @@ const navMainItems = [
     url: "/dashboard/reports",
     icon: FileText,
   },
+  {
+    title: "Arcade Test",
+    url: "/dashboard/arcade-test",
+    icon: FlaskConical,
+  },
 ];
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
