@@ -3,9 +3,11 @@
 import * as React from "react";
 import { useForm } from "@tanstack/react-form";
 import { useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
-import { signupSchema } from "@/app/schema/auth";
 import { authClient } from "@/lib/auth-client";
+import { handleSocialSignIn } from "@/lib/auth-utils";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -23,8 +25,11 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
+import { signupSchema } from "@/app/schemas/auth";
+import Link from "next/link";
 
 export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
+  const router = useRouter();
   const [isEmailPending, startEmailTransition] = useTransition();
   const [isOAuthPending, startOAuthTransition] = useTransition();
   const form = useForm({
@@ -37,19 +42,24 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
       onSubmit: signupSchema,
     },
     onSubmit: async ({ value }) => {
-      await authClient.signUp.email({
-        name: value.name,
-        email: value.email,
-        password: value.password,
-      });
+      await authClient.signUp.email(
+        {
+          name: value.name,
+          email: value.email,
+          password: value.password,
+        },
+        {
+          onSuccess: () => {
+            toast.success("Account created successfully");
+            router.push("/dashboard");
+          },
+          onError: (ctx) => {
+            toast.error(ctx.error.message ?? "Failed to create account");
+          },
+        }
+      );
     },
   });
-
-  const handleSocialSignIn = (provider: "github") => {
-    startOAuthTransition(async () => {
-      await authClient.signIn.social({ provider });
-    });
-  };
 
   return (
     <Card {...props}>
@@ -158,24 +168,26 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
                   form="signup-form"
                   disabled={isEmailPending || isOAuthPending}
                 >
-                  {isEmailPending && (
-                    <Loader2 className="animate-spin" />
-                  )}
+                  {isEmailPending && <Loader2 className="animate-spin" />}
                   {isEmailPending ? "Creating account..." : "Create Account"}
                 </Button>
                 <Button
                   variant="outline"
                   type="button"
                   disabled={isEmailPending || isOAuthPending}
-                  onClick={() => handleSocialSignIn("github")}
+                  onClick={() => {
+                    startOAuthTransition(async () => {
+                      await handleSocialSignIn("github");
+                      router.push("/dashboard");
+                    });
+                  }}
                 >
-                  {isOAuthPending && (
-                    <Loader2 className="animate-spin" />
-                  )}
+                  {isOAuthPending && <Loader2 className="animate-spin" />}
                   Continue with GitHub
                 </Button>
                 <FieldDescription className="px-6 text-center">
-                  Already have an account? <a href="#">Sign in</a>
+                  Already have an account?{" "}
+                  <Link href="/auth/login">Sign in</Link>
                 </FieldDescription>
               </Field>
             </FieldGroup>

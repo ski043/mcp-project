@@ -3,9 +3,11 @@
 import * as React from "react";
 import { useForm } from "@tanstack/react-form";
 import { useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
-import { loginSchema } from "@/app/schema/auth";
 import { authClient } from "@/lib/auth-client";
+import { handleSocialSignIn } from "@/lib/auth-utils";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,11 +26,14 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
+import { loginSchema } from "@/app/schemas/auth";
+import Link from "next/link";
 
 export function LoginForm({
   className,
   ...props
 }: React.ComponentProps<"div">) {
+  const router = useRouter();
   const [isEmailPending, startEmailTransition] = useTransition();
   const [isOAuthPending, startOAuthTransition] = useTransition();
   const form = useForm({
@@ -40,18 +45,23 @@ export function LoginForm({
       onSubmit: loginSchema,
     },
     onSubmit: async ({ value }) => {
-      await authClient.signIn.email({
-        email: value.email,
-        password: value.password,
-      });
+      await authClient.signIn.email(
+        {
+          email: value.email,
+          password: value.password,
+        },
+        {
+          onSuccess: () => {
+            toast.success("Successfully logged in");
+            router.push("/dashboard");
+          },
+          onError: (ctx) => {
+            toast.error(ctx.error.message ?? "Failed to log in");
+          },
+        }
+      );
     },
   });
-
-  const handleSocialSignIn = (provider: "github") => {
-    startOAuthTransition(async () => {
-      await authClient.signIn.social({ provider });
-    });
-  };
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
@@ -136,24 +146,26 @@ export function LoginForm({
                   form="login-form"
                   disabled={isEmailPending || isOAuthPending}
                 >
-                  {isEmailPending && (
-                    <Loader2 className="animate-spin" />
-                  )}
+                  {isEmailPending && <Loader2 className="animate-spin" />}
                   {isEmailPending ? "Logging in..." : "Login"}
                 </Button>
                 <Button
                   variant="outline"
                   type="button"
                   disabled={isEmailPending || isOAuthPending}
-                  onClick={() => handleSocialSignIn("github")}
+                  onClick={() => {
+                    startOAuthTransition(async () => {
+                      await handleSocialSignIn("github");
+                      router.push("/dashboard");
+                    });
+                  }}
                 >
-                  {isOAuthPending && (
-                    <Loader2 className="animate-spin" />
-                  )}
+                  {isOAuthPending && <Loader2 className="animate-spin" />}
                   Continue with GitHub
                 </Button>
                 <FieldDescription className="text-center">
-                  Don&apos;t have an account? <a href="#">Sign up</a>
+                  Don&apos;t have an account?{" "}
+                  <Link href="/auth/register">Sign up</Link>
                 </FieldDescription>
               </Field>
             </FieldGroup>

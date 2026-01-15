@@ -63,7 +63,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   />
                 </div>
                 <span className="text-base font-semibold">
-                  <span className="text-primary">MCP</span>Marshall
+                  <span className="text-primary">MCP</span>Marshal
                 </span>
               </a>
             </SidebarMenuButton>

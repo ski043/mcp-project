@@ -21,7 +21,7 @@ export function Navbar() {
             <Box className="size-4 text-primary-foreground" strokeWidth={2.5} />
           </div>
           <span className="text-xl font-semibold tracking-tight">
-            <span className="text-primary">MCP</span>Marshall
+            <span className="text-primary">MCP</span>Marshal
           </span>
         </Link>
 
