@@ -16,6 +16,7 @@ import {
   MessageSquare,
   FileText,
   Box,
+  FlaskConical,
 } from "lucide-react";
 import { NavMain } from "./nav-main";
 import { NavUser } from "./nav-user";
@@ -41,6 +42,11 @@ const data = {
       title: "Reports",
       url: "/dashboard/reports",
       icon: FileText,
+    },
+    {
+      title: "Arcade Test",
+      url: "/dashboard/arcade-test",
+      icon: FlaskConical,
     },
   ],
 };

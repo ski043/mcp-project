@@ -9,6 +9,7 @@ import {
   regenerateMessage,
   getChat,
 } from "./aiChat";
+import { arcadeNoAuthTest, arcadeOAuthDocTest } from "./arcadeTest";
 
 export const router = {
   aiChat: {
@@ -21,5 +22,9 @@ export const router = {
     models: getModels,
     send: sendMessage,
     regenerate: regenerateMessage,
+  },
+  arcadeTest: {
+    noAuth: arcadeNoAuthTest,
+    oauthDoc: arcadeOAuthDocTest,
   },
 };
