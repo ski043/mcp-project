@@ -23,7 +23,9 @@ import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 
 // Helper function to get user initials
-function getUserInitials(name: string): string {
+function getUserInitials(name: string | null | undefined): string {
+  if (!name || name.trim() === "") return "??";
+
   return name
     .split(" ")
     .map((part) => part[0])
@@ -53,6 +55,7 @@ export function NavUser({
     router.push("/auth/login");
   };
 
+  const displayName = user.name ?? "Unknown";
   const userInitials = getUserInitials(user.name);
   const avatarSrc =
     user.image || `https://api.dicebear.com/9.x/glass/svg?seed=${user.email}`;
@@ -69,7 +72,7 @@ export function NavUser({
               <Avatar className="h-8 w-8 rounded-lg">
                 <AvatarImage
                   src={avatarSrc}
-                  alt={user.name}
+                  alt={displayName}
                   className="rounded-lg"
                 />
                 <AvatarFallback className="rounded-lg">
@@ -77,7 +80,7 @@ export function NavUser({
                 </AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">{user.name}</span>
+                <span className="truncate font-medium">{displayName}</span>
                 <span className="text-muted-foreground truncate text-xs">
                   {user.email}
                 </span>
@@ -96,7 +99,7 @@ export function NavUser({
                 <Avatar className="h-8 w-8 rounded-lg">
                   <AvatarImage
                     src={avatarSrc}
-                    alt={user.name}
+                    alt={displayName}
                     className="rounded-lg"
                   />
                   <AvatarFallback className="rounded-lg">
@@ -104,7 +107,7 @@ export function NavUser({
                   </AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-medium">{user.name}</span>
+                  <span className="truncate font-medium">{displayName}</span>
                   <span className="text-muted-foreground truncate text-xs">
                     {user.email}
                   </span>

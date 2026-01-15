@@ -26,6 +26,7 @@ export const router = {
   },
   user: {
     current: getCurrentUser,
+  },
   arcadeTest: {
     noAuth: arcadeNoAuthTest,
     oauthDoc: arcadeOAuthDocTest,
