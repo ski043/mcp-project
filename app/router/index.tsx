@@ -10,6 +10,7 @@ import {
   getChat,
 } from "./aiChat";
 import { getCurrentUser } from "./user";
+import { arcadeNoAuthTest, arcadeOAuthDocTest } from "./arcadeTest";
 
 export const router = {
   aiChat: {
@@ -25,5 +26,8 @@ export const router = {
   },
   user: {
     current: getCurrentUser,
+  arcadeTest: {
+    noAuth: arcadeNoAuthTest,
+    oauthDoc: arcadeOAuthDocTest,
   },
 };
