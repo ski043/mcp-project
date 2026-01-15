@@ -39,19 +39,24 @@ class YFinanceClient:
                 raise ValueError(f"No data available for ticker: {ticker}")
 
             # Normalize the data structure - handle multiple possible field names
-            current_price = info.get("currentPrice") or info.get("regularMarketPrice")
-            previous_close = info.get("previousClose") or info.get("regularMarketPreviousClose")
+            current_price = info.get("currentPrice")
+            if current_price is None:
+                current_price = info.get("regularMarketPrice")
+
+            previous_close = info.get("previousClose")
+            if previous_close is None:
+                previous_close = info.get("regularMarketPreviousClose")
 
             # Calculate change percentage if we have both prices
             change_percent = None
-            if current_price and previous_close and previous_close > 0:
+            if current_price is not None and previous_close is not None and previous_close > 0:
                 change_percent = ((current_price - previous_close) / previous_close) * 100
 
             return {
                 "ticker": ticker.upper(),
                 "currentPrice": current_price,
                 "previousClose": previous_close,
-                "changePercent": round(change_percent, 2) if change_percent else None,
+                "changePercent": round(change_percent, 2) if change_percent is not None else None,
                 "marketCap": info.get("marketCap"),
                 "fiftyTwoWeekHigh": info.get("fiftyTwoWeekHigh"),
                 "fiftyTwoWeekLow": info.get("fiftyTwoWeekLow"),

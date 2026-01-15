@@ -12,16 +12,17 @@ model Test {
 }
 
 model User {
-  id            String    @id
+  id            String      @id
   name          String
   email         String
-  emailVerified Boolean   @default(false)
+  emailVerified Boolean     @default(false)
   image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
   sessions      Session[]
   accounts      Account[]
   chats         Chat[]
+  portfolios    Portfolio[]
 
   @@unique([email])
   @@map("user")
@@ -101,4 +102,63 @@ model Message {
 
   @@index([chatId])
   @@map("message")
+}
+
+// Financial Portfolio Models
+model Portfolio {
+  id          String             @id @default(uuid())
+  name        String
+  description String?
+  userId      String
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  holdings    PortfolioHolding[]
+  reports     Report[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([userId])
+  @@map("portfolio")
+}
+
+model PortfolioHolding {
+  id          String    @id @default(uuid())
+  portfolioId String
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  ticker      String // Stock symbol (e.g., "AAPL", "MSFT")
+  quantity    Float // Number of shares
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([portfolioId, ticker])
+  @@index([portfolioId])
+  @@map("portfolio_holding")
+}
+
+model Report {
+  id          String         @id @default(uuid())
+  portfolioId String
+  portfolio   Portfolio      @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  summary     String // LLM-generated analysis
+  sentiment   String? // "bullish", "bearish", "neutral"
+  triggerType String // "manual" or "scheduled"
+  outputs     ReportOutput[]
+  createdAt   DateTime       @default(now())
+
+  @@index([portfolioId])
+  @@index([createdAt])
+  @@map("report")
+}
+
+model ReportOutput {
+  id        String   @id @default(uuid())
+  reportId  String
+  report    Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  type      String // "email", "notion", "docs", "dashboard"
+  url       String? // Link to Notion doc, Gmail thread, etc.
+  status    String // "sent", "failed", "pending"
+  metadata  String? // JSON metadata about the output
+  createdAt DateTime @default(now())
+
+  @@index([reportId])
+  @@map("report_output")
 }
