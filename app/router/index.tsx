@@ -11,6 +11,12 @@ import {
 } from "./aiChat";
 import { getCurrentUser } from "./user";
 import { arcadeNoAuthTest, arcadeOAuthDocTest } from "./arcadeTest";
+import {
+  testGetStockPrice,
+  testGetCompanyInfo,
+  testGetCompanyNews,
+  testGetHistoricalPrices,
+} from "./financialMcp";
 
 export const router = {
   aiChat: {
@@ -30,5 +36,11 @@ export const router = {
   arcadeTest: {
     noAuth: arcadeNoAuthTest,
     oauthDoc: arcadeOAuthDocTest,
+  },
+  financialMcp: {
+    stockPrice: testGetStockPrice,
+    companyInfo: testGetCompanyInfo,
+    companyNews: testGetCompanyNews,
+    historicalPrices: testGetHistoricalPrices,
   },
 };
