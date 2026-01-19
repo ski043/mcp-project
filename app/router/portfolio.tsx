@@ -15,17 +15,31 @@ import prisma from "@/lib/db";
 
 const arcadeClient = new Arcade({ apiKey: env.ARCADE_API_KEY });
 
+// Helper function to determine historical period based on days
+function getHistoricalPeriod(daysSincePurchase: number): string {
+  if (daysSincePurchase > 730) return "2y";
+  if (daysSincePurchase > 365) return "1y";
+  if (daysSincePurchase > 180) return "6mo";
+  if (daysSincePurchase > 90) return "3mo";
+  return "1mo";
+}
+
 // Types for MCP responses
 type StockPriceData = {
-  current_price: number;
-  market_cap: string;
-  week_52_high: number;
-  week_52_low: number;
+  ticker: string;
+  price: number;
+  previous_close: number;
+  change_percent: number;
+  market_cap: number;
+  fifty_two_week_high: number;
+  fifty_two_week_low: number;
+  currency: string;
   volume: number;
 } | null;
 
 type CompanyInfoData = {
-  name: string;
+  ticker: string;
+  company_name: string;
   sector: string;
   industry: string;
   description: string;
@@ -216,10 +230,13 @@ export const addHolding = authorized
         user_id: userId,
       });
 
-      const priceData = response.output?.value as StockPriceData;
+      // Parse the JSON string response
+      const priceData = typeof response.output?.value === 'string'
+        ? JSON.parse(response.output.value) as StockPriceData
+        : response.output?.value as StockPriceData;
 
       // Check if we got valid price data
-      if (!priceData || !priceData.current_price || priceData.current_price <= 0) {
+      if (!priceData || !priceData.price || priceData.price <= 0) {
         throw new ORPCError("BAD_REQUEST", {
           message: `Invalid ticker symbol: ${input.ticker}. Please check the symbol and try again.`,
         });
@@ -325,14 +342,20 @@ export const getHoldingDetails = authorized
         }),
       ]);
 
-      const priceData = priceResponse.output?.value as StockPriceData;
-      const companyData = companyResponse.output?.value as CompanyInfoData;
+      // Parse the JSON string responses
+      const priceData = typeof priceResponse.output?.value === 'string'
+        ? JSON.parse(priceResponse.output.value) as StockPriceData
+        : priceResponse.output?.value as StockPriceData;
+
+      const companyData = typeof companyResponse.output?.value === 'string'
+        ? JSON.parse(companyResponse.output.value) as CompanyInfoData
+        : companyResponse.output?.value as CompanyInfoData;
 
       return {
         ticker: input.ticker,
-        currentPrice: priceData?.current_price ?? null,
-        marketCap: priceData?.market_cap ?? null,
-        companyName: companyData?.name ?? null,
+        currentPrice: priceData?.price ?? null,
+        marketCap: priceData?.market_cap ? String(priceData.market_cap) : null,
+        companyName: companyData?.company_name ?? null,
         sector: companyData?.sector ?? null,
         industry: companyData?.industry ?? null,
       };
@@ -341,4 +364,325 @@ export const getHoldingDetails = authorized
         message: `Failed to fetch details for ticker: ${input.ticker}`,
       });
     }
+  });
+
+// Get dashboard data with current prices and metrics
+export const getDashboard = authorized
+  .route({
+    path: "/portfolio/dashboard",
+    method: "GET",
+    summary: "Get portfolio dashboard with current prices and calculated metrics",
+  })
+  .handler(async ({ context }) => {
+    // Get portfolio with holdings
+    const portfolio = await prisma.portfolio.findFirst({
+      where: { userId: context.user.id },
+      include: {
+        holdings: {
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+
+    if (!portfolio) {
+      return {
+        portfolio: null,
+        holdings: [],
+        metrics: {
+          totalValue: null,
+          totalPurchaseValue: 0,
+          totalGainLoss: null,
+          totalGainLossPercent: null,
+          holdingsCount: 0,
+          bestPerformer: null,
+          worstPerformer: null,
+        },
+        performanceData: [],
+      };
+    }
+
+    const userId = context.user.email ?? context.user.id;
+
+    // Fetch current prices for all holdings in parallel
+    const holdingsWithPrices = await Promise.all(
+      portfolio.holdings.map(async (holding) => {
+        try {
+          const [priceResponse, companyResponse] = await Promise.all([
+            arcadeClient.tools.execute({
+              tool_name: "FinancialMcp.GetStockPrice@1.0.0",
+              input: { ticker: holding.ticker },
+              user_id: userId,
+            }),
+            arcadeClient.tools.execute({
+              tool_name: "FinancialMcp.GetCompanyInfo@1.0.0",
+              input: { ticker: holding.ticker },
+              user_id: userId,
+            }),
+          ]);
+
+          // Parse the JSON string responses
+          const priceData = typeof priceResponse.output?.value === 'string'
+            ? JSON.parse(priceResponse.output.value) as StockPriceData
+            : priceResponse.output?.value as StockPriceData;
+
+          const companyData = typeof companyResponse.output?.value === 'string'
+            ? JSON.parse(companyResponse.output.value) as CompanyInfoData
+            : companyResponse.output?.value as CompanyInfoData;
+
+          const currentPrice = priceData?.price ?? null;
+
+          // Calculate holding metrics
+          const purchaseValue = holding.purchasePrice * holding.quantity;
+          const currentValue = currentPrice
+            ? currentPrice * holding.quantity
+            : null;
+          const gainLoss = currentValue ? currentValue - purchaseValue : null;
+          const gainLossPercent = gainLoss
+            ? (gainLoss / purchaseValue) * 100
+            : null;
+
+          return {
+            id: holding.id,
+            ticker: holding.ticker,
+            quantity: holding.quantity,
+            purchasePrice: holding.purchasePrice,
+            purchaseDate: holding.purchaseDate,
+            currentPrice,
+            currentValue,
+            gainLoss,
+            gainLossPercent,
+            companyName: companyData?.company_name ?? null,
+          };
+        } catch (error) {
+          console.error(
+            `Failed to fetch price for ${holding.ticker}:`,
+            error
+          );
+          return {
+            id: holding.id,
+            ticker: holding.ticker,
+            quantity: holding.quantity,
+            purchasePrice: holding.purchasePrice,
+            purchaseDate: holding.purchaseDate,
+            currentPrice: null,
+            currentValue: null,
+            gainLoss: null,
+            gainLossPercent: null,
+            companyName: null,
+          };
+        }
+      })
+    );
+
+    // Calculate portfolio-level metrics
+    // Only include holdings with valid current prices in calculations
+    const validHoldings = holdingsWithPrices.filter((h) => h.currentValue !== null);
+
+    const totalPurchaseValue = validHoldings.reduce(
+      (sum, h) => sum + h.purchasePrice * h.quantity,
+      0
+    );
+
+    const totalValue = validHoldings.length > 0
+      ? validHoldings.reduce((sum, h) => sum + (h.currentValue ?? 0), 0)
+      : null;
+
+    const totalGainLoss =
+      totalValue !== null ? totalValue - totalPurchaseValue : null;
+
+    const totalGainLossPercent =
+      totalGainLoss !== null && totalPurchaseValue > 0
+        ? (totalGainLoss / totalPurchaseValue) * 100
+        : null;
+
+    // Fetch historical data for performance chart
+    const earliestPurchaseDate = portfolio.holdings.reduce(
+      (earliest, holding) =>
+        holding.purchaseDate < earliest ? holding.purchaseDate : earliest,
+      portfolio.holdings[0]?.purchaseDate ?? new Date()
+    );
+
+    // Determine the period based on how long ago the earliest purchase was
+    const daysSincePurchase = Math.floor(
+      (Date.now() - earliestPurchaseDate.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    const historicalPeriod = getHistoricalPeriod(daysSincePurchase);
+
+    // Fetch historical prices for all holdings in parallel
+    const historicalDataResults = await Promise.all(
+      portfolio.holdings.map(async (holding) => {
+        try {
+          const response = await arcadeClient.tools.execute({
+            tool_name: "FinancialMcp.GetHistoricalPrices@1.0.0",
+            input: {
+              ticker: holding.ticker,
+              period: historicalPeriod,
+            },
+            user_id: userId,
+          });
+
+          const historicalData = typeof response.output?.value === 'string'
+            ? JSON.parse(response.output.value)
+            : response.output?.value;
+
+          // Extract the prices array from the response
+          const prices = historicalData?.prices || [];
+
+          return {
+            ticker: holding.ticker,
+            quantity: holding.quantity,
+            purchasePrice: holding.purchasePrice,
+            purchaseDate: holding.purchaseDate,
+            historicalPrices: Array.isArray(prices) ? prices : [],
+          };
+        } catch (error) {
+          console.error(`Failed to fetch historical data for ${holding.ticker}:`, error);
+          return {
+            ticker: holding.ticker,
+            quantity: holding.quantity,
+            purchasePrice: holding.purchasePrice,
+            purchaseDate: holding.purchaseDate,
+            historicalPrices: [],
+          };
+        }
+      })
+    );
+
+    // Build performance data points with forward-fill for missing data
+    // First, collect all unique dates across all holdings
+    const allDatesSet = new Set<string>();
+    historicalDataResults.forEach((holding) => {
+      holding.historicalPrices.forEach((dataPoint: { date: string; close_price?: number }) => {
+        allDatesSet.add(dataPoint.date);
+      });
+    });
+
+    const allDates = Array.from(allDatesSet).sort();
+
+    // Create price maps for each holding with forward-fill for missing dates
+    const holdingPriceMaps = historicalDataResults.map((holding) => {
+      const priceMap = new Map<string, number>();
+      let lastKnownPrice: number | null = null;
+
+      // Sort holding's historical prices by date
+      const sortedPrices = holding.historicalPrices
+        .filter((dp: { date: string; close_price?: number }) => dp.close_price)
+        .sort((a: { date: string }, b: { date: string }) =>
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        );
+
+      // Build a map of dates to prices for this holding
+      const holdingDateMap = new Map<string, number>();
+      sortedPrices.forEach((dp: { date: string; close_price?: number }) => {
+        if (dp.close_price) {
+          holdingDateMap.set(dp.date, dp.close_price);
+        }
+      });
+
+      // Forward-fill prices for all dates
+      allDates.forEach((date) => {
+        if (holdingDateMap.has(date)) {
+          lastKnownPrice = holdingDateMap.get(date)!;
+          priceMap.set(date, lastKnownPrice);
+        } else if (lastKnownPrice !== null) {
+          // Forward-fill with last known price
+          priceMap.set(date, lastKnownPrice);
+        }
+      });
+
+      return {
+        ticker: holding.ticker,
+        quantity: holding.quantity,
+        purchasePrice: holding.purchasePrice,
+        purchaseDate: holding.purchaseDate,
+        priceMap,
+      };
+    });
+
+    // Build performance data by aggregating all holdings for each date
+    const performanceMap = new Map<string, { portfolioValue: number; purchaseValue: number; holdingsIncluded: number }>();
+
+    allDates.forEach((date) => {
+      let portfolioValue = 0;
+      let purchaseValue = 0;
+      let holdingsIncluded = 0;
+
+      holdingPriceMaps.forEach((holding) => {
+        // Only include if holding was owned at this date and we have price data
+        const holdingOwnedAtDate = new Date(date) >= new Date(holding.purchaseDate);
+        const price = holding.priceMap.get(date);
+
+        if (holdingOwnedAtDate && price) {
+          portfolioValue += price * holding.quantity;
+          purchaseValue += holding.purchasePrice * holding.quantity;
+          holdingsIncluded++;
+        }
+      });
+
+      // Only include this date if at least one holding has data
+      if (holdingsIncluded > 0) {
+        performanceMap.set(date, { portfolioValue, purchaseValue, holdingsIncluded });
+      }
+    });
+
+    // Convert map to sorted array
+    const performanceData = Array.from(performanceMap.entries())
+      .map(([date, values]) => ({
+        date,
+        portfolioValue: values.portfolioValue,
+        purchaseValue: values.purchaseValue,
+      }))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // Find best and worst performers
+    const holdingsWithGains = holdingsWithPrices.filter(
+      (h) => h.gainLossPercent !== null
+    );
+
+    const bestPerformer =
+      holdingsWithGains.length > 0
+        ? holdingsWithGains.reduce((best, current) =>
+          (current.gainLossPercent ?? 0) > (best.gainLossPercent ?? 0)
+            ? current
+            : best
+        )
+        : null;
+
+    const worstPerformer =
+      holdingsWithGains.length > 0
+        ? holdingsWithGains.reduce((worst, current) =>
+          (current.gainLossPercent ?? 0) < (worst.gainLossPercent ?? 0)
+            ? current
+            : worst
+        )
+        : null;
+
+    return {
+      portfolio: {
+        id: portfolio.id,
+        name: portfolio.name,
+        description: portfolio.description,
+      },
+      holdings: holdingsWithPrices,
+      metrics: {
+        totalValue,
+        totalPurchaseValue,
+        totalGainLoss,
+        totalGainLossPercent,
+        holdingsCount: holdingsWithPrices.length,
+        bestPerformer: bestPerformer
+          ? {
+            ticker: bestPerformer.ticker,
+            gainLossPercent: bestPerformer.gainLossPercent ?? 0,
+          }
+          : null,
+        worstPerformer: worstPerformer
+          ? {
+            ticker: worstPerformer.ticker,
+            gainLossPercent: worstPerformer.gainLossPercent ?? 0,
+          }
+          : null,
+      },
+      performanceData,
+    };
   });
