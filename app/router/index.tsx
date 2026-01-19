@@ -17,6 +17,15 @@ import {
   testGetCompanyNews,
   testGetHistoricalPrices,
 } from "./financialMcp";
+import {
+  getPortfolio,
+  createPortfolio,
+  updatePortfolio,
+  deletePortfolio,
+  addHolding,
+  removeHolding,
+  getHoldingDetails,
+} from "./portfolio";
 
 export const router = {
   aiChat: {
@@ -42,5 +51,14 @@ export const router = {
     companyInfo: testGetCompanyInfo,
     companyNews: testGetCompanyNews,
     historicalPrices: testGetHistoricalPrices,
+  },
+  portfolio: {
+    get: getPortfolio,
+    create: createPortfolio,
+    update: updatePortfolio,
+    delete: deletePortfolio,
+    addHolding: addHolding,
+    removeHolding: removeHolding,
+    getHoldingDetails: getHoldingDetails,
   },
 };

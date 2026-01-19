@@ -116,18 +116,21 @@ model Portfolio {
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
 
+  @@unique([userId])
   @@index([userId])
   @@map("portfolio")
 }
 
 model PortfolioHolding {
-  id          String    @id @default(uuid())
-  portfolioId String
-  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
-  ticker      String // Stock symbol (e.g., "AAPL", "MSFT")
-  quantity    Float // Number of shares
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id            String   @id @default(uuid())
+  portfolioId   String
+  portfolio     Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  ticker        String   // Stock symbol (e.g., "AAPL", "MSFT")
+  quantity      Float    // Number of shares
+  purchasePrice Float    // Price per share at purchase
+  purchaseDate  DateTime // Date of purchase
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@unique([portfolioId, ticker])
   @@index([portfolioId])
