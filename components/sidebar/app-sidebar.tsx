@@ -17,6 +17,7 @@ import {
   FileText,
   Box,
   FlaskConical,
+  BriefcaseIcon,
 } from "lucide-react";
 import { NavMain } from "./nav-main";
 import { NavUser } from "./nav-user";
@@ -32,6 +33,11 @@ const navMainItems = [
     title: "Chat",
     url: "/dashboard/ai-chat",
     icon: MessageSquare,
+  },
+  {
+    title: "Portfolio",
+    url: "/dashboard/portfolio",
+    icon: BriefcaseIcon,
   },
   {
     title: "Reports",
