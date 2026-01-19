@@ -141,9 +141,11 @@ model Report {
   id          String         @id @default(uuid())
   portfolioId String
   portfolio   Portfolio      @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
-  summary     String // LLM-generated analysis
+  summary     String         @db.Text // LLM-generated analysis
   sentiment   String? // "bullish", "bearish", "neutral"
   triggerType String // "manual" or "scheduled"
+  model       String // Model used for generation
+  contextData String?        @db.Text // JSON snapshot of portfolio data
   outputs     ReportOutput[]
   createdAt   DateTime       @default(now())
 
@@ -162,6 +164,7 @@ model ReportOutput {
   metadata  String? // JSON metadata about the output
   createdAt DateTime @default(now())
 
+  @@unique([reportId, type])
   @@index([reportId])
   @@map("report_output")
 }

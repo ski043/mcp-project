@@ -27,6 +27,13 @@ import {
   getHoldingDetails,
   getDashboard,
 } from "./portfolio";
+import {
+  generateReport,
+  listReports,
+  getReport,
+  deleteReport,
+  publishToChannel,
+} from "./report";
 
 export const router = {
   aiChat: {
@@ -62,5 +69,12 @@ export const router = {
     removeHolding: removeHolding,
     getHoldingDetails: getHoldingDetails,
     dashboard: getDashboard,
+  },
+  report: {
+    generate: generateReport,
+    list: listReports,
+    get: getReport,
+    delete: deleteReport,
+    publish: publishToChannel,
   },
 };
