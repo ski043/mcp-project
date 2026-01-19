@@ -107,7 +107,7 @@ export function PortfolioAllocationChart({
       <CardContent className="flex-1 pb-0">
         <ChartContainer
           config={chartConfig}
-          className="mx-auto  max-h-[300px]"
+          className="mx-auto max-h-[300px]"
         >
           <PieChart>
             <ChartTooltip

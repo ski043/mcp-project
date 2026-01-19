@@ -15,6 +15,15 @@ import prisma from "@/lib/db";
 
 const arcadeClient = new Arcade({ apiKey: env.ARCADE_API_KEY });
 
+// Helper function to determine historical period based on days
+function getHistoricalPeriod(daysSincePurchase: number): string {
+  if (daysSincePurchase > 730) return "2y";
+  if (daysSincePurchase > 365) return "1y";
+  if (daysSincePurchase > 180) return "6mo";
+  if (daysSincePurchase > 90) return "3mo";
+  return "1mo";
+}
+
 // Types for MCP responses
 type StockPriceData = {
   ticker: string;
@@ -497,7 +506,7 @@ export const getDashboard = authorized
     const daysSincePurchase = Math.floor(
       (Date.now() - earliestPurchaseDate.getTime()) / (1000 * 60 * 60 * 24)
     );
-    const historicalPeriod = daysSincePurchase > 730 ? "2y" : daysSincePurchase > 365 ? "1y" : daysSincePurchase > 180 ? "6mo" : daysSincePurchase > 90 ? "3mo" : "1mo";
+    const historicalPeriod = getHistoricalPeriod(daysSincePurchase);
 
     // Fetch historical prices for all holdings in parallel
     const historicalDataResults = await Promise.all(
@@ -539,25 +548,81 @@ export const getDashboard = authorized
       })
     );
 
-    // Build performance data points (monthly)
-    // Create a map of dates to portfolio values
-    const performanceMap = new Map<string, { portfolioValue: number; purchaseValue: number }>();
-
+    // Build performance data points with forward-fill for missing data
+    // First, collect all unique dates across all holdings
+    const allDatesSet = new Set<string>();
     historicalDataResults.forEach((holding) => {
       holding.historicalPrices.forEach((dataPoint: { date: string; close_price?: number }) => {
-        const date = dataPoint.date;
-        const price = dataPoint.close_price;
+        allDatesSet.add(dataPoint.date);
+      });
+    });
 
-        // Only include this holding's value if it was owned at this date
-        const holdingOwnedAtDate = new Date(date) >= new Date(holding.purchaseDate);
+    const allDates = Array.from(allDatesSet).sort();
 
-        if (holdingOwnedAtDate && price) {
-          const currentEntry = performanceMap.get(date) || { portfolioValue: 0, purchaseValue: 0 };
-          currentEntry.portfolioValue += price * holding.quantity;
-          currentEntry.purchaseValue += holding.purchasePrice * holding.quantity;
-          performanceMap.set(date, currentEntry);
+    // Create price maps for each holding with forward-fill for missing dates
+    const holdingPriceMaps = historicalDataResults.map((holding) => {
+      const priceMap = new Map<string, number>();
+      let lastKnownPrice: number | null = null;
+
+      // Sort holding's historical prices by date
+      const sortedPrices = holding.historicalPrices
+        .filter((dp: { date: string; close_price?: number }) => dp.close_price)
+        .sort((a: { date: string }, b: { date: string }) =>
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        );
+
+      // Build a map of dates to prices for this holding
+      const holdingDateMap = new Map<string, number>();
+      sortedPrices.forEach((dp: { date: string; close_price?: number }) => {
+        if (dp.close_price) {
+          holdingDateMap.set(dp.date, dp.close_price);
         }
       });
+
+      // Forward-fill prices for all dates
+      allDates.forEach((date) => {
+        if (holdingDateMap.has(date)) {
+          lastKnownPrice = holdingDateMap.get(date)!;
+          priceMap.set(date, lastKnownPrice);
+        } else if (lastKnownPrice !== null) {
+          // Forward-fill with last known price
+          priceMap.set(date, lastKnownPrice);
+        }
+      });
+
+      return {
+        ticker: holding.ticker,
+        quantity: holding.quantity,
+        purchasePrice: holding.purchasePrice,
+        purchaseDate: holding.purchaseDate,
+        priceMap,
+      };
+    });
+
+    // Build performance data by aggregating all holdings for each date
+    const performanceMap = new Map<string, { portfolioValue: number; purchaseValue: number; holdingsIncluded: number }>();
+
+    allDates.forEach((date) => {
+      let portfolioValue = 0;
+      let purchaseValue = 0;
+      let holdingsIncluded = 0;
+
+      holdingPriceMaps.forEach((holding) => {
+        // Only include if holding was owned at this date and we have price data
+        const holdingOwnedAtDate = new Date(date) >= new Date(holding.purchaseDate);
+        const price = holding.priceMap.get(date);
+
+        if (holdingOwnedAtDate && price) {
+          portfolioValue += price * holding.quantity;
+          purchaseValue += holding.purchasePrice * holding.quantity;
+          holdingsIncluded++;
+        }
+      });
+
+      // Only include this date if at least one holding has data
+      if (holdingsIncluded > 0) {
+        performanceMap.set(date, { portfolioValue, purchaseValue, holdingsIncluded });
+      }
     });
 
     // Convert map to sorted array
