@@ -154,8 +154,8 @@ export const updatePortfolio = authorized
     const updated = await prisma.portfolio.update({
       where: { id: portfolio.id },
       data: {
-        ...(input.name !== undefined && { name: input.name }),
-        ...(input.description !== undefined && { description: input.description }),
+        name: input.name,
+        description: input.description,
       },
     });
 
@@ -235,20 +235,25 @@ export const addHolding = authorized
       });
     }
 
-    // Upsert holding (update if exists, create if not)
-    const holding = await prisma.portfolioHolding.upsert({
+    // Check if holding already exists
+    const existingHolding = await prisma.portfolioHolding.findUnique({
       where: {
         portfolioId_ticker: {
           portfolioId: portfolio.id,
           ticker: input.ticker,
         },
       },
-      update: {
-        quantity: input.quantity,
-        purchasePrice: input.purchasePrice,
-        purchaseDate: new Date(input.purchaseDate),
-      },
-      create: {
+    });
+
+    if (existingHolding) {
+      throw new ORPCError("BAD_REQUEST", {
+        message: `You already have a holding for ${input.ticker}. Delete it first to add a new one.`,
+      });
+    }
+
+    // Create new holding
+    const holding = await prisma.portfolioHolding.create({
+      data: {
         portfolioId: portfolio.id,
         ticker: input.ticker,
         quantity: input.quantity,
