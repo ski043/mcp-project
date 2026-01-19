@@ -25,6 +25,7 @@ import {
   addHolding,
   removeHolding,
   getHoldingDetails,
+  getDashboard,
 } from "./portfolio";
 
 export const router = {
@@ -60,5 +61,6 @@ export const router = {
     addHolding: addHolding,
     removeHolding: removeHolding,
     getHoldingDetails: getHoldingDetails,
+    dashboard: getDashboard,
   },
 };
