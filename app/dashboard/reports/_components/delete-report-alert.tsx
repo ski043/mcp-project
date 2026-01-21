@@ -25,12 +25,14 @@ type DeleteReportAlertProps = {
     createdAt: Date;
     sentiment: string | null;
   };
+  onDeleted?: () => void;
 };
 
 export function DeleteReportAlert({
   open,
   onOpenChange,
   report,
+  onDeleted,
 }: DeleteReportAlertProps) {
   const queryClient = useQueryClient();
 
@@ -40,6 +42,7 @@ export function DeleteReportAlert({
         queryClient.invalidateQueries({ queryKey: orpc.report.list.key() });
         toast.success("Report deleted successfully");
         onOpenChange(false);
+        onDeleted?.();
       },
       onError: (error) => {
         toast.error(error.message ?? "Failed to delete report");

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeftIcon, TrashIcon, ExternalLinkIcon } from "lucide-react";
 
 import { orpc } from "@/lib/orpc";
@@ -26,6 +27,7 @@ type ReportDetailProps = {
 };
 
 export function ReportDetail({ reportId }: ReportDetailProps) {
+  const router = useRouter();
   const [deleteAlertOpen, setDeleteAlertOpen] = useState(false);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
 
@@ -140,6 +142,7 @@ export function ReportDetail({ reportId }: ReportDetailProps) {
           createdAt: report.createdAt,
           sentiment: report.sentiment,
         }}
+        onDeleted={() => router.push("/dashboard/reports")}
       />
 
       <PublishReportDialog

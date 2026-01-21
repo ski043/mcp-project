@@ -47,6 +47,9 @@ export function PublishReportDialog({
           toast.info("Authorization required. Click the link to authorize.");
         } else {
           queryClient.invalidateQueries({ queryKey: orpc.report.list.key() });
+          queryClient.invalidateQueries({
+            queryKey: orpc.report.get.key({ input: { reportId } }),
+          });
           toast.success(`Report published to ${selectedChannel}`);
           onOpenChange(false);
           setAuthUrl(null);

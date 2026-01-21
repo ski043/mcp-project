@@ -104,12 +104,6 @@ export function groupReportsByDate<T extends ReportWithDate>(reports: T[]) {
   return groups.filter((group) => group.reports.length > 0);
 }
 
-// Truncate text with ellipsis
-export function truncateText(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text;
-  return text.slice(0, maxLength) + "...";
-}
-
 // Extract title from markdown (first H1) or generate fallback
 export function extractReportTitle(
   summary: string,
@@ -160,16 +154,4 @@ export function stripMarkdown(text: string): string {
       .replace(/\s+/g, " ")
       .trim()
   );
-}
-
-// Get sentiment border color for card styling
-export function getSentimentBorderColor(sentiment: string | null): string {
-  switch (sentiment) {
-    case "bullish":
-      return "border-l-green-500";
-    case "bearish":
-      return "border-l-red-500";
-    default:
-      return "border-l-gray-400 dark:border-l-gray-600";
-  }
 }

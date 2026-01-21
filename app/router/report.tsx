@@ -157,7 +157,9 @@ export const generateReport = authorized
       0
     );
     const totalGainLoss = totalCurrentValue - totalPurchaseValue;
-    const totalGainLossPercent = (totalGainLoss / totalPurchaseValue) * 100;
+    const totalGainLossPercent = totalPurchaseValue > 0
+      ? (totalGainLoss / totalPurchaseValue) * 100
+      : 0;
 
     // Find best and worst performers
     const sortedByPerformance = [...validHoldings].sort(
@@ -444,7 +446,9 @@ export const initiateReport = authorized
       0
     );
     const totalGainLoss = totalCurrentValue - totalPurchaseValue;
-    const totalGainLossPercent = (totalGainLoss / totalPurchaseValue) * 100;
+    const totalGainLossPercent = totalPurchaseValue > 0
+      ? (totalGainLoss / totalPurchaseValue) * 100
+      : 0;
 
     const sortedByPerformance = [...validHoldings].sort(
       (a, b) => (b.gainLossPercent || 0) - (a.gainLossPercent || 0)
@@ -653,6 +657,21 @@ Provide a comprehensive analysis with actionable recommendations.`;
           data: { status: "sent" },
         });
 
+        // Cleanup old reports (keep last 10)
+        const oldReports = await prisma.report.findMany({
+          where: { portfolioId: report.portfolioId },
+          orderBy: { createdAt: "desc" },
+          skip: 10,
+          select: { id: true },
+        });
+
+        if (oldReports.length > 0) {
+          await prisma.report.deleteMany({
+            where: { id: { in: oldReports.map((r) => r.id) } },
+          });
+          console.log(`Cleaned up ${oldReports.length} old reports`);
+        }
+
         console.log(`Report ${report.id} completed with sentiment: ${sentiment}`);
       },
     });
@@ -763,6 +782,12 @@ export const publishToChannel = authorized
 
     if (!report || report.portfolio.userId !== context.user.id) {
       throw new ORPCError("NOT_FOUND", { message: "Report not found" });
+    }
+
+    if (report.status !== "completed") {
+      throw new ORPCError("BAD_REQUEST", {
+        message: "Cannot publish a report that is still generating",
+      });
     }
 
     const userId = context.user.email ?? context.user.id;

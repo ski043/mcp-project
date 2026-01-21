@@ -116,7 +116,7 @@ const createPortfolioTools = (userId: string, userIdForDb: string) => ({
       });
 
       if (!portfolio || portfolio.holdings.length === 0) {
-        return { error: 'No portfolio found or portfolio is empty' };
+        throw new Error('No portfolio found or portfolio is empty');
       }
 
       // Fetch current prices for all holdings
@@ -162,7 +162,9 @@ const createPortfolioTools = (userId: string, userIdForDb: string) => ({
         (sum, h) => sum + (h.currentValue || 0), 0
       );
       const totalGainLoss = totalCurrentValue - totalPurchaseValue;
-      const totalGainLossPercent = (totalGainLoss / totalPurchaseValue) * 100;
+      const totalGainLossPercent = totalPurchaseValue > 0
+        ? (totalGainLoss / totalPurchaseValue) * 100
+        : 0;
 
       return {
         totalPurchaseValue,

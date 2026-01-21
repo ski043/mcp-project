@@ -1,19 +1,17 @@
 import { z } from "zod";
 
-export const generateReportSchema = z.object({
+// Base schema for report generation options
+const reportOptionsSchema = z.object({
   model: z.string().optional(),
   outputChannels: z
     .array(z.enum(["dashboard", "notion", "docs"]))
     .default(["dashboard"]),
 });
 
-// New: Initiate report - creates placeholder and returns ID
-export const initiateReportSchema = z.object({
-  model: z.string().optional(),
-  outputChannels: z
-    .array(z.enum(["dashboard", "notion", "docs"]))
-    .default(["dashboard"]),
-});
+export const generateReportSchema = reportOptionsSchema;
+
+// Initiate report - creates placeholder and returns ID
+export const initiateReportSchema = reportOptionsSchema;
 
 // New: Stream report - streams AI content for a generating report
 export const streamReportSchema = z.object({

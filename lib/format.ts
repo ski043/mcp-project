@@ -17,7 +17,8 @@ export const formatNumber = (value: number | null | undefined): string => {
   return new Intl.NumberFormat("en-US").format(value);
 };
 
-export const formatDate = (date: Date | string): string => {
+export const formatDate = (date: Date | string | null | undefined): string => {
+  if (date === null || date === undefined) return "--";
   return new Date(date).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
