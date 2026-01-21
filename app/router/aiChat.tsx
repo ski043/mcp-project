@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { ORPCError, streamToEventIterator } from "@orpc/server";
-import { streamText } from "ai";
+import { streamText, tool, stepCountIs } from "ai";
+import Arcade from "@arcadeai/arcadejs";
 
 import prisma from "@/lib/db";
+import { env } from "@/lib/env";
 import { AVAILABLE_MODELS } from "@/lib/ai-models";
 import {
   createChatSchema,
@@ -13,6 +15,166 @@ import {
 } from "../schemas/ai-chat";
 
 import { authorized } from "../middlewares/auth";
+
+const arcadeClient = new Arcade({ apiKey: env.ARCADE_API_KEY });
+
+// Create portfolio tools for chat
+const createPortfolioTools = (userId: string, userIdForDb: string) => ({
+  get_stock_price: tool({
+    description: 'Get current stock price and market data for a ticker symbol',
+    inputSchema: z.object({
+      ticker: z.string().describe('Stock ticker symbol (e.g., AAPL, MSFT)'),
+    }),
+    execute: async ({ ticker }) => {
+      const response = await arcadeClient.tools.execute({
+        tool_name: "FinancialMcp.GetStockPrice@1.0.0",
+        input: { ticker },
+        user_id: userId,
+      });
+      const data = typeof response.output?.value === 'string'
+        ? JSON.parse(response.output.value)
+        : response.output?.value;
+      return data;
+    },
+  }),
+
+  get_company_info: tool({
+    description: 'Get company information including sector, industry, and description',
+    inputSchema: z.object({
+      ticker: z.string().describe('Stock ticker symbol'),
+    }),
+    execute: async ({ ticker }) => {
+      const response = await arcadeClient.tools.execute({
+        tool_name: "FinancialMcp.GetCompanyInfo@1.0.0",
+        input: { ticker },
+        user_id: userId,
+      });
+      const data = typeof response.output?.value === 'string'
+        ? JSON.parse(response.output.value)
+        : response.output?.value;
+      return data;
+    },
+  }),
+
+  get_company_news: tool({
+    description: 'Get recent news articles about a company',
+    inputSchema: z.object({
+      ticker: z.string().describe('Stock ticker symbol'),
+      max_articles: z.number().default(5).describe('Maximum number of articles (max 10)'),
+    }),
+    execute: async ({ ticker, max_articles }) => {
+      const response = await arcadeClient.tools.execute({
+        tool_name: "FinancialMcp.GetCompanyNews@1.0.0",
+        input: { ticker, max_articles },
+        user_id: userId,
+      });
+      const data = typeof response.output?.value === 'string'
+        ? JSON.parse(response.output.value)
+        : response.output?.value;
+      return data;
+    },
+  }),
+
+  get_historical_prices: tool({
+    description: 'Get historical price data for a stock over various time periods',
+    inputSchema: z.object({
+      ticker: z.string().describe('Stock ticker symbol'),
+      period: z.enum(['1mo', '3mo', '6mo', '1y', '2y']).default('3mo'),
+    }),
+    execute: async ({ ticker, period }) => {
+      const response = await arcadeClient.tools.execute({
+        tool_name: "FinancialMcp.GetHistoricalPrices@1.0.0",
+        input: { ticker, period },
+        user_id: userId,
+      });
+      const data = typeof response.output?.value === 'string'
+        ? JSON.parse(response.output.value)
+        : response.output?.value;
+      return data;
+    },
+  }),
+
+  get_portfolio_holdings: tool({
+    description: "Get all holdings in the user's portfolio with purchase information",
+    inputSchema: z.object({}),
+    execute: async () => {
+      const portfolio = await prisma.portfolio.findFirst({
+        where: { userId: userIdForDb },
+        include: { holdings: true },
+      });
+      return portfolio?.holdings || [];
+    },
+  }),
+
+  get_portfolio_performance: tool({
+    description: "Get portfolio performance metrics including total value, gain/loss, and current prices",
+    inputSchema: z.object({}),
+    execute: async () => {
+      const portfolio = await prisma.portfolio.findFirst({
+        where: { userId: userIdForDb },
+        include: { holdings: true },
+      });
+
+      if (!portfolio || portfolio.holdings.length === 0) {
+        return { error: 'No portfolio found or portfolio is empty' };
+      }
+
+      // Fetch current prices for all holdings
+      const holdingsData = await Promise.all(
+        portfolio.holdings.map(async (holding) => {
+          try {
+            const response = await arcadeClient.tools.execute({
+              tool_name: "FinancialMcp.GetStockPrice@1.0.0",
+              input: { ticker: holding.ticker },
+              user_id: userId,
+            });
+            const priceData = typeof response.output?.value === 'string'
+              ? JSON.parse(response.output.value)
+              : response.output?.value;
+
+            const currentPrice = priceData?.price || null;
+            const purchaseValue = holding.purchasePrice * holding.quantity;
+            const currentValue = currentPrice ? currentPrice * holding.quantity : null;
+            const gainLoss = currentValue ? currentValue - purchaseValue : null;
+            const gainLossPercent = gainLoss ? (gainLoss / purchaseValue) * 100 : null;
+
+            return {
+              ticker: holding.ticker,
+              quantity: holding.quantity,
+              purchasePrice: holding.purchasePrice,
+              currentPrice,
+              currentValue,
+              gainLoss,
+              gainLossPercent,
+            };
+          } catch (error) {
+            console.error(`Failed to fetch price for ${holding.ticker}:`, error);
+            return null;
+          }
+        })
+      );
+
+      const validHoldings = holdingsData.filter(h => h !== null);
+      const totalPurchaseValue = validHoldings.reduce(
+        (sum, h) => sum + (h.purchasePrice * h.quantity), 0
+      );
+      const totalCurrentValue = validHoldings.reduce(
+        (sum, h) => sum + (h.currentValue || 0), 0
+      );
+      const totalGainLoss = totalCurrentValue - totalPurchaseValue;
+      const totalGainLossPercent = (totalGainLoss / totalPurchaseValue) * 100;
+
+      return {
+        totalPurchaseValue,
+        totalCurrentValue,
+        totalGainLoss,
+        totalGainLossPercent,
+        holdingsCount: validHoldings.length,
+        holdings: validHoldings,
+      };
+    },
+  }),
+});
 
 export const listChats = authorized
   .route({
@@ -239,19 +401,49 @@ export const sendMessage = authorized
       content: m.content,
     }));
 
-    // Add system prompt if exists
+    // Create portfolio tools with proper user IDs
+    const userId = context.user.email ?? context.user.id;
+    const userIdForDb = context.user.id;
+    const portfolioTools = createPortfolioTools(userId, userIdForDb);
+
+    // Enhanced system prompt when tools are available
+    const toolSystemPrompt = `You are a financial assistant with access to real-time market data and the user's portfolio.
+
+You can:
+- Look up current stock prices and market data
+- Get company information and fundamentals
+- Fetch recent news about companies
+- View historical price trends
+- Access the user's portfolio holdings and performance
+
+When answering questions:
+1. Use tools to fetch current data rather than relying on outdated information
+2. Be specific with numbers and dates
+3. Synthesize information from multiple sources when relevant
+4. Provide context and analysis, not just raw data
+5. If the user asks about "my portfolio" or "my holdings", use get_portfolio_holdings or get_portfolio_performance first
+
+Always indicate when data is real-time vs. historical.`;
+
+    // Add system prompt (custom or tool-enhanced)
     const allMessages = chat.systemPrompt
       ? [
           { role: "system" as const, content: chat.systemPrompt },
           ...modelMessages,
         ]
-      : modelMessages;
+      : [
+          { role: "system" as const, content: toolSystemPrompt },
+          ...modelMessages,
+        ];
 
     // With Vercel AI Gateway, just pass the model string directly
     // Format: "provider/model-name" (e.g., "anthropic/claude-sonnet-4-20250514")
     const result = streamText({
       model: chat.model,
       messages: allMessages,
+      tools: portfolioTools,
+      toolChoice: 'auto',
+      stopWhen: stepCountIs(5),
       onFinish: async ({ text }) => {
         try {
           await prisma.message.create({
@@ -308,18 +500,48 @@ export const regenerateMessage = authorized
       })
     );
 
-    // Add system prompt if exists
+    // Create portfolio tools with proper user IDs
+    const userId = context.user.email ?? context.user.id;
+    const userIdForDb = context.user.id;
+    const portfolioTools = createPortfolioTools(userId, userIdForDb);
+
+    // Enhanced system prompt when tools are available
+    const toolSystemPrompt = `You are a financial assistant with access to real-time market data and the user's portfolio.
+
+You can:
+- Look up current stock prices and market data
+- Get company information and fundamentals
+- Fetch recent news about companies
+- View historical price trends
+- Access the user's portfolio holdings and performance
+
+When answering questions:
+1. Use tools to fetch current data rather than relying on outdated information
+2. Be specific with numbers and dates
+3. Synthesize information from multiple sources when relevant
+4. Provide context and analysis, not just raw data
+5. If the user asks about "my portfolio" or "my holdings", use get_portfolio_holdings or get_portfolio_performance first
+
+Always indicate when data is real-time vs. historical.`;
+
+    // Add system prompt (custom or tool-enhanced)
     const allMessages = chat.systemPrompt
       ? [
           { role: "system" as const, content: chat.systemPrompt },
           ...modelMessages,
         ]
-      : modelMessages;
+      : [
+          { role: "system" as const, content: toolSystemPrompt },
+          ...modelMessages,
+        ];
 
     // With Vercel AI Gateway, just pass the model string directly
     const result = streamText({
       model: chat.model,
       messages: allMessages,
+      tools: portfolioTools,
+      toolChoice: 'auto',
+      stopWhen: stepCountIs(5),
       onFinish: async ({ text }) => {
         try {
           await prisma.message.create({
