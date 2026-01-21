@@ -108,7 +108,7 @@ export function ReportDetail({ reportId }: ReportDetailProps) {
                 Publish
               </Button>
               <Button
-                variant="outline"
+                variant="destructive"
                 size="sm"
                 onClick={() => setDeleteAlertOpen(true)}
               >
