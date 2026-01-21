@@ -14,6 +14,7 @@ from arcade_mcp_server import MCPApp
 from financial_mcp.tools.company_info import register_company_info_tools
 from financial_mcp.tools.market_news import register_news_tools
 from financial_mcp.tools.stock_data import register_stock_tools
+from financial_mcp.tools.portfolio_analysis import register_portfolio_analysis_tools
 
 # Initialize MCP App
 app = MCPApp(
@@ -27,6 +28,7 @@ app = MCPApp(
 register_stock_tools(app)
 register_company_info_tools(app)
 register_news_tools(app)
+register_portfolio_analysis_tools(app)
 
 
 if __name__ == "__main__":

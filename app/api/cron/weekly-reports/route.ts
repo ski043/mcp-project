@@ -306,6 +306,52 @@ Provide a comprehensive analysis with actionable recommendations.`;
       )
     );
 
+    // Send email via Gmail.SendEmail
+    try {
+      console.log(`[Cron] Sending email report to ${userEmail}...`);
+
+      const reportTitle = `Weekly Portfolio Report - ${new Date(report.createdAt).toLocaleDateString()}`;
+      const htmlBody = `
+        <h1>${reportTitle}</h1>
+        <p><strong>Portfolio:</strong> ${portfolio.name}</p>
+        <p><strong>Sentiment:</strong> ${sentiment.charAt(0).toUpperCase() + sentiment.slice(1)}</p>
+        <hr>
+        <div style="font-family: sans-serif; line-height: 1.6;">
+          ${summary.replace(/\n/g, "<br>")}
+        </div>
+        <hr>
+        <p style="color: #666; font-size: 12px;">
+          This is an automated weekly report from your Financial Portfolio Agent.
+        </p>
+      `;
+
+      await arcadeClient.tools.execute({
+        tool_name: "Gmail.SendEmail",
+        input: {
+          subject: reportTitle,
+          body: htmlBody,
+          recipient: userEmail,
+          content_type: "html",
+        },
+        user_id: userEmail,
+      });
+
+      // Update email output record to sent
+      await prisma.reportOutput.updateMany({
+        where: { reportId: report.id, type: "email" },
+        data: { status: "sent" },
+      });
+
+      console.log(`[Cron] Email sent successfully to ${userEmail}`);
+    } catch (emailError) {
+      console.error(`[Cron] Failed to send email to ${userEmail}:`, emailError);
+      // Update email output record to failed
+      await prisma.reportOutput.updateMany({
+        where: { reportId: report.id, type: "email" },
+        data: { status: "failed" },
+      });
+    }
+
     // Cleanup old reports (keep last 10)
     const oldReports = await prisma.report.findMany({
       where: { portfolioId: portfolio.id },

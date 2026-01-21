@@ -4,7 +4,7 @@ import { z } from "zod";
 const reportOptionsSchema = z.object({
   model: z.string().optional(),
   outputChannels: z
-    .array(z.enum(["dashboard", "notion", "docs"]))
+    .array(z.enum(["dashboard", "email", "notion", "docs"]))
     .default(["dashboard"]),
 });
 
@@ -28,6 +28,6 @@ export const deleteReportSchema = z.object({
 
 export const publishReportSchema = z.object({
   reportId: z.uuid(),
-  channel: z.enum(["notion", "docs"]),
+  channel: z.enum(["email", "notion", "docs"]),
   waitForAuth: z.boolean().default(false),
 });

@@ -10,6 +10,7 @@ export const SUMMARY_PREVIEW_LENGTH = 200;
 
 export const OUTPUT_CHANNELS = [
   { id: "dashboard", label: "Dashboard", description: "View in app" },
+  { id: "email", label: "Email", description: "Send via Gmail" },
   { id: "notion", label: "Notion", description: "Export to Notion" },
   { id: "docs", label: "Google Docs", description: "Export to Google Docs" },
 ] as const;

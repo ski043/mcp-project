@@ -36,7 +36,7 @@ export function PublishReportDialog({
   reportId,
 }: PublishReportDialogProps) {
   const queryClient = useQueryClient();
-  const [selectedChannel, setSelectedChannel] = useState<PublishChannel>("notion");
+  const [selectedChannel, setSelectedChannel] = useState<PublishChannel>("email");
   const [authUrl, setAuthUrl] = useState<string | null>(null);
 
   const publishMutation = useMutation(
@@ -113,7 +113,11 @@ export function PublishReportDialog({
             <div className="rounded-md border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-900 dark:bg-yellow-950">
               <p className="text-sm text-yellow-800 dark:text-yellow-200">
                 Authorization required. Please authorize access to{" "}
-                {selectedChannel === "notion" ? "Notion" : "Google Docs"}.
+                {selectedChannel === "email"
+                  ? "Gmail"
+                  : selectedChannel === "notion"
+                    ? "Notion"
+                    : "Google Docs"}.
               </p>
               <Button
                 variant="outline"
