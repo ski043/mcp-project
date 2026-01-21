@@ -29,6 +29,8 @@ import {
 } from "./portfolio";
 import {
   generateReport,
+  initiateReport,
+  streamReport,
   listReports,
   getReport,
   deleteReport,
@@ -72,6 +74,8 @@ export const router = {
   },
   report: {
     generate: generateReport,
+    initiate: initiateReport,
+    stream: streamReport,
     list: listReports,
     get: getReport,
     delete: deleteReport,

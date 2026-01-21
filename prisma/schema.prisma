@@ -137,11 +137,18 @@ model PortfolioHolding {
   @@map("portfolio_holding")
 }
 
+enum ReportStatus {
+  generating
+  completed
+  failed
+}
+
 model Report {
   id          String         @id @default(uuid())
   portfolioId String
   portfolio   Portfolio      @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
-  summary     String         @db.Text // LLM-generated analysis
+  status      ReportStatus   @default(completed) // Default "completed" for existing reports during migration
+  summary     String         @default("") @db.Text // LLM-generated analysis (empty while generating)
   sentiment   String? // "bullish", "bearish", "neutral"
   triggerType String // "manual" or "scheduled"
   model       String // Model used for generation

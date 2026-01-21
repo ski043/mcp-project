@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { BriefcaseIcon, PlusIcon } from "lucide-react";
+import { BriefcaseIcon, PlusIcon, FileTextIcon } from "lucide-react";
 
 import { orpc } from "@/lib/orpc";
 import { Button } from "@/components/ui/button";
@@ -83,6 +83,20 @@ export default function DashboardPage() {
   // Portfolio exists - show dashboard
   return (
     <div className="container mx-auto p-4 lg:p-6 space-y-6">
+      {/* Header with Actions */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">{portfolio.name}</h1>
+          <p className="text-muted-foreground">Portfolio Overview</p>
+        </div>
+        <Button asChild>
+          <Link href="/dashboard/reports">
+            <FileTextIcon className="size-4" />
+            View Reports
+          </Link>
+        </Button>
+      </div>
+
       {/* Stat Cards Grid */}
       <PortfolioStats metrics={metrics} isLoading={false} />
 
