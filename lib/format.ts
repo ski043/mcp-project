@@ -16,3 +16,14 @@ export const formatNumber = (value: number | null | undefined): string => {
   if (value === null || value === undefined) return "--";
   return new Intl.NumberFormat("en-US").format(value);
 };
+
+export const formatDate = (date: Date | string | null | undefined): string => {
+  if (date === null || date === undefined) return "--";
+  return new Date(date).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
