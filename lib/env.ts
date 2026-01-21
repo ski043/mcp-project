@@ -10,6 +10,7 @@ export const env = createEnv({
     GITHUB_CLIENT_SECRET: z.string().min(1),
     AI_GATEWAY_API_KEY: z.string().min(1),
     ARCADE_API_KEY: z.string().min(1),
+    CRON_SECRET: z.string().min(1),
   },
 
   experimental__runtimeEnv: {},
