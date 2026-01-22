@@ -1,107 +1,100 @@
 # Financial MCP Server
 
-MCP server providing financial data tools via Yahoo Finance. Built with `arcade-mcp` framework.
+A custom MCP (Model Context Protocol) server that provides financial data tools via Yahoo Finance. Built with the `arcade-mcp` framework and deployed to Arcade for seamless integration with AI applications.
 
-## Features
+## Overview
 
-This server provides 4 core financial data tools:
+This server exposes financial data as tools that can be called by LLMs. Once deployed to Arcade, these tools are available to any application using the Arcade SDK, enabling AI agents to fetch real-time market data autonomously.
 
-1. **get_stock_price** - Fetch current price and key metrics for a stock ticker
-2. **get_company_info** - Get detailed company information
-3. **get_company_news** - Fetch recent news articles for a company
-4. **get_historical_prices** - Get historical price data (daily close prices)
+## Tools
 
-## Prerequisites
+| Tool | Description |
+|------|-------------|
+| `get_stock_price` | Current price, volume, daily change, 52-week range |
+| `get_company_info` | Company fundamentals (sector, industry, market cap, P/E) |
+| `get_company_news` | Recent news articles with titles and links |
+| `get_historical_prices` | Historical OHLCV data for trend analysis |
+| `analyze_portfolio` | Comprehensive analysis of multiple tickers at once |
 
-- Python 3.10 or higher
-- [`uv` package manager](https://docs.astral.sh/uv/getting-started/installation/)
+## Quick Start
 
-## Installation
+### Prerequisites
 
-1. Navigate to the mcp-server directory:
+- Python 3.10+
+- [uv package manager](https://docs.astral.sh/uv/getting-started/installation/)
+- Arcade account ([arcade.dev](https://arcade.dev))
+
+### Installation
+
 ```bash
 cd mcp-server
-```
-
-2. Install dependencies:
-```bash
 uv sync
 ```
 
-3. (Optional) Create a `.env` file from the example:
+### Deploy to Arcade
+
 ```bash
-cp .env.example .env
+arcade deploy
 ```
 
-## Usage
+Once deployed, the tools are accessible via the Arcade SDK:
 
-### Running with HTTP Transport (Development)
+```typescript
+import Arcade from "@arcadeai/arcadejs";
 
-Start the server with HTTP transport for development and testing:
+const arcade = new Arcade({ apiKey: process.env.ARCADE_API_KEY });
+
+const response = await arcade.tools.execute({
+  tool_name: "FinancialMcp.GetStockPrice@1.0.0",
+  input: { ticker: "AAPL" },
+  user_id: "user@example.com",
+});
+```
+
+## Local Development
+
+### HTTP Transport (for testing)
 
 ```bash
 uv run src/financial_mcp/server.py http
 ```
 
-Access:
-- **API Documentation**: http://127.0.0.1:8000/docs
-- **Health Check**: http://127.0.0.1:8000/worker/health
+- API Docs: http://127.0.0.1:8000/docs
+- Health Check: http://127.0.0.1:8000/worker/health
 
-### Running with stdio Transport (Production)
-
-Start the server with stdio transport (default for MCP clients):
+### stdio Transport (for MCP clients)
 
 ```bash
 uv run src/financial_mcp/server.py stdio
-```
-
-Or simply:
-
-```bash
-uv run src/financial_mcp/server.py
-```
-
-### Connecting MCP Clients
-
-To connect Claude Desktop, Cursor, or VS Code to this server:
-
-```bash
-# Install arcade CLI if not already installed
-uv tool install arcade-mcp
-
-# Configure your preferred client
-arcade configure claude  # For Claude Desktop
-arcade configure cursor  # For Cursor IDE
-arcade configure vscode  # For VS Code
 ```
 
 ## Tool Examples
 
 ### get_stock_price
 
-Fetch current price and metrics for AAPL:
 ```json
 {
   "ticker": "AAPL",
   "price": 178.52,
   "change_percent": 1.23,
   "previous_close": 176.35,
+  "volume": 52340000,
   "market_cap": 2800000000000,
   "fifty_two_week_high": 198.23,
-  "fifty_two_week_low": 164.08,
-  "currency": "USD"
+  "fifty_two_week_low": 164.08
 }
 ```
 
 ### get_company_info
 
-Get company information for MSFT:
 ```json
 {
   "ticker": "MSFT",
   "company_name": "Microsoft Corporation",
   "sector": "Technology",
   "industry": "Software—Infrastructure",
+  "market_cap": 3100000000000,
+  "pe_ratio": 35.2,
   "description": "Microsoft Corporation develops...",
   "website": "https://www.microsoft.com",
   "employees": 221000
@@ -110,60 +103,66 @@ Get company information for MSFT:
 
 ### get_company_news
 
-Fetch recent news for GOOGL:
 ```json
-[
-  {
-    "title": "Google announces new AI features",
-    "publisher": "TechCrunch",
-    "link": "https://...",
-    "publish_time": "2025-01-15T10:30:00Z"
-  }
-]
+{
+  "articles": [
+    {
+      "title": "Microsoft announces new AI features",
+      "publisher": "TechCrunch",
+      "link": "https://...",
+      "publish_time": "2025-01-15T10:30:00Z"
+    }
+  ]
+}
 ```
 
 ### get_historical_prices
 
-Get 1-month historical prices for TSLA:
 ```json
-[
-  {
-    "date": "2025-01-15",
-    "close_price": 245.32
+{
+  "ticker": "TSLA",
+  "period": "3mo",
+  "prices": [
+    { "date": "2025-01-15", "close": 245.32, "volume": 98000000 },
+    { "date": "2025-01-14", "close": 243.18, "volume": 87000000 }
+  ]
+}
+```
+
+### analyze_portfolio
+
+```json
+{
+  "tickers": ["AAPL", "MSFT", "GOOGL"],
+  "analysis": {
+    "AAPL": { "price": 178.52, "company": "Apple Inc.", "sector": "Technology" },
+    "MSFT": { "price": 415.20, "company": "Microsoft Corporation", "sector": "Technology" },
+    "GOOGL": { "price": 175.80, "company": "Alphabet Inc.", "sector": "Technology" }
   },
-  {
-    "date": "2025-01-14",
-    "close_price": 243.18
-  }
-]
+  "sector_breakdown": { "Technology": 100 }
+}
 ```
 
-## Architecture
+## Project Structure
 
 ```
-financial-mcp/
+mcp-server/
 ├── src/
 │   └── financial_mcp/
-│       ├── server.py           # Main MCPApp entrypoint
-│       ├── tools/              # Tool implementations
-│       │   ├── stock_data.py   # Price & historical data tools
-│       │   ├── company_info.py # Company information tool
-│       │   └── market_news.py  # News fetching tool
+│       ├── server.py              # Main MCP app entrypoint
+│       ├── tools/
+│       │   ├── stock_data.py      # Price and historical data
+│       │   ├── company_info.py    # Company fundamentals
+│       │   ├── market_news.py     # News aggregation
+│       │   └── portfolio_analysis.py  # Multi-stock analysis
 │       └── utils/
-│           └── yfinance_client.py  # Yahoo Finance wrapper
-├── pyproject.toml             # Dependencies
-└── README.md                  # This file
+│           └── yfinance_client.py # Yahoo Finance wrapper
+├── pyproject.toml
+└── README.md
 ```
 
-## Development
+## Adding New Tools
 
-### Adding New Tools
-
-1. Create a new tool function in the appropriate file under `tools/`
-2. Use the `@app.tool` decorator with type annotations
-3. Follow the pattern of existing tools for error handling
-
-Example:
 ```python
 from typing import Annotated
 
@@ -171,7 +170,7 @@ from typing import Annotated
 def my_new_tool(
     ticker: Annotated[str, "Stock ticker symbol"]
 ) -> str:
-    """Tool description for LLM."""
+    """Tool description for the LLM."""
     try:
         # Implementation
         return json.dumps(result)
@@ -179,33 +178,11 @@ def my_new_tool(
         return json.dumps({"error": str(e)})
 ```
 
-### Testing
-
-Start the HTTP server and use the Swagger UI at http://127.0.0.1:8000/docs to test tools interactively.
-
 ## Troubleshooting
 
-### `arcade` command not found
+**Rate limiting**: Yahoo Finance has unofficial rate limits. Wait a few minutes if you encounter errors.
 
-Ensure you installed arcade-mcp as a uv tool:
-```bash
-uv tool install arcade-mcp
-```
-
-### Yahoo Finance rate limits
-
-If you encounter rate limiting, wait a few minutes before retrying. Yahoo Finance has unofficial rate limits on their web endpoints.
-
-### Missing data for ticker
-
-Some tickers may not have complete data. The tools will return partial data or error messages in these cases.
-
-## Next Steps
-
-- Integrate with Next.js app via Arcade Gateway
-- Add portfolio management tools
-- Implement data caching for better performance
-- Add more comprehensive financial analysis tools
+**Missing data**: Some tickers may have incomplete data. Tools return partial data or error messages in these cases.
 
 ## License
 

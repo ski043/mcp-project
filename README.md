@@ -10,10 +10,10 @@ CPMarshal demonstrates how to build a production-ready AI agent using a **three-
 
 - **Tracks Your Portfolio**: Manage multiple investment portfolios with holdings, purchase prices, and quantities
 - **Fetches Real-Time Data**: Custom MCP server retrieves live stock prices, company fundamentals, and market news
-- **Generates AI Reports**: LLM-powered analysis that synthesizes market data into actionable insights
+- **Agentic Report Generation**: LLM autonomously researches your holdings, deciding what data to fetch and where to focus attention
 - **Delivers Anywhere**: Publish reports to Gmail, Notion, or Google Docs with one-click OAuth
 - **Scheduled Automation**: Weekly cron jobs automatically generate and email portfolio reports
-- **Interactive Chat**: Ask questions about your portfolio and get AI-powered responses in real-time
+- **Agentic Chat**: Ask questions and watch the AI autonomously call tools to fetch the data it needs
 
 ## Architecture
 
@@ -133,17 +133,18 @@ Once deployed, the MCP server is accessible through Arcade's tool execution API,
 - Real-time valuation with live market data
 - Performance tracking with gain/loss calculations
 
-### AI-Powered Reports
-- One-click report generation for any portfolio
-- LLM synthesizes market data into actionable insights
-- Streaming report generation with real-time updates
-- Publish to Dashboard, Gmail, Notion, or Google Docs
+### Agentic Report Generation
+- **Autonomous research**: The LLM decides what data to fetch based on portfolio composition
+- **Intelligent focus**: Spends more time analyzing holdings with significant gains/losses
+- **Multi-step reasoning**: Up to 15 tool calls per report for thorough analysis
+- **Streaming output**: Watch the agent research and write in real-time
+- **Multi-channel publishing**: Dashboard, Gmail, Notion, or Google Docs
 
 ### Interactive AI Chat
-- Natural language interface to query your portfolio
-- Real-time tool calling to fetch market data
-- Persistent chat history across sessions
-- Context-aware responses about your holdings
+- **Agentic tool calling**: LLM autonomously fetches market data as needed
+- **Natural language queries**: Ask anything about your portfolio
+- **Multi-step reasoning**: Chains tool calls to answer complex questions
+- **Persistent memory**: Chat history saved across sessions
 
 ### Scheduled Reports
 - Automated weekly portfolio reports via Vercel Cron

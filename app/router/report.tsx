@@ -1,5 +1,6 @@
 import { ORPCError, streamToEventIterator } from "@orpc/server";
-import { generateText, streamText } from "ai";
+import { generateText, streamText, tool, stepCountIs } from "ai";
+import { z } from "zod";
 import Arcade from "@arcadeai/arcadejs";
 
 import prisma from "@/lib/db";
@@ -30,6 +31,82 @@ interface ArcadeOutputValue {
   document_url?: string;
   [key: string]: unknown;
 }
+
+// ============================================================================
+// AGENTIC TOOLS - LLM decides what to research
+// ============================================================================
+
+const createReportTools = (userId: string) => ({
+  get_stock_price: tool({
+    description: "Get current stock price, volume, and daily change for a ticker. Use this to check current valuations.",
+    inputSchema: z.object({
+      ticker: z.string().describe("Stock ticker symbol (e.g., AAPL, MSFT)"),
+    }),
+    execute: async ({ ticker }) => {
+      const response = await arcadeClient.tools.execute({
+        tool_name: "FinancialMcp.GetStockPrice@1.0.0",
+        input: { ticker },
+        user_id: userId,
+      });
+      return typeof response.output?.value === "string"
+        ? JSON.parse(response.output.value)
+        : response.output?.value;
+    },
+  }),
+
+  get_company_info: tool({
+    description: "Get company fundamentals including sector, industry, market cap, and P/E ratio. Useful for understanding what the company does and its size.",
+    inputSchema: z.object({
+      ticker: z.string().describe("Stock ticker symbol"),
+    }),
+    execute: async ({ ticker }) => {
+      const response = await arcadeClient.tools.execute({
+        tool_name: "FinancialMcp.GetCompanyInfo@1.0.0",
+        input: { ticker },
+        user_id: userId,
+      });
+      return typeof response.output?.value === "string"
+        ? JSON.parse(response.output.value)
+        : response.output?.value;
+    },
+  }),
+
+  get_company_news: tool({
+    description: "Get recent news articles about a company. Use this to understand market sentiment and recent events that might affect the stock.",
+    inputSchema: z.object({
+      ticker: z.string().describe("Stock ticker symbol"),
+      max_articles: z.number().default(5).describe("Maximum number of articles (1-10)"),
+    }),
+    execute: async ({ ticker, max_articles }) => {
+      const response = await arcadeClient.tools.execute({
+        tool_name: "FinancialMcp.GetCompanyNews@1.0.0",
+        input: { ticker, max_articles },
+        user_id: userId,
+      });
+      return typeof response.output?.value === "string"
+        ? JSON.parse(response.output.value)
+        : response.output?.value;
+    },
+  }),
+
+  get_historical_prices: tool({
+    description: "Get historical price data to analyze trends. Use this to understand price movements over time.",
+    inputSchema: z.object({
+      ticker: z.string().describe("Stock ticker symbol"),
+      period: z.enum(["1mo", "3mo", "6mo", "1y", "2y"]).default("3mo"),
+    }),
+    execute: async ({ ticker, period }) => {
+      const response = await arcadeClient.tools.execute({
+        tool_name: "FinancialMcp.GetHistoricalPrices@1.0.0",
+        input: { ticker, period },
+        user_id: userId,
+      });
+      return typeof response.output?.value === "string"
+        ? JSON.parse(response.output.value)
+        : response.output?.value;
+    },
+  }),
+});
 
 // ============================================================================
 // GENERATE REPORT - Core Agent Loop
@@ -323,14 +400,14 @@ Provide a comprehensive analysis with actionable recommendations.`;
   });
 
 // ============================================================================
-// INITIATE REPORT - Creates placeholder, fetches data, returns ID for streaming
+// INITIATE REPORT - Creates placeholder with holdings, returns ID for agentic streaming
 // ============================================================================
 
 export const initiateReport = authorized
   .route({
     path: "/report/initiate",
     method: "POST",
-    summary: "Initiate report generation - returns ID for streaming",
+    summary: "Initiate report generation - returns ID for agentic streaming",
   })
   .input(initiateReportSchema)
   .handler(async ({ context, input }) => {
@@ -346,122 +423,19 @@ export const initiateReport = authorized
       });
     }
 
-    const userId = context.user.email ?? context.user.id;
-
-    // Step 2: Fetch all MCP data in parallel for each holding
-    console.log(`Fetching data for ${portfolio.holdings.length} holdings...`);
-
-    const holdingsData = await Promise.all(
-      portfolio.holdings.map(async (holding) => {
-        try {
-          const [priceRes, companyRes, newsRes, histRes] = await Promise.all([
-            arcadeClient.tools.execute({
-              tool_name: "FinancialMcp.GetStockPrice@1.0.0",
-              input: { ticker: holding.ticker },
-              user_id: userId,
-            }),
-            arcadeClient.tools.execute({
-              tool_name: "FinancialMcp.GetCompanyInfo@1.0.0",
-              input: { ticker: holding.ticker },
-              user_id: userId,
-            }),
-            arcadeClient.tools.execute({
-              tool_name: "FinancialMcp.GetCompanyNews@1.0.0",
-              input: { ticker: holding.ticker, max_articles: 5 },
-              user_id: userId,
-            }),
-            arcadeClient.tools.execute({
-              tool_name: "FinancialMcp.GetHistoricalPrices@1.0.0",
-              input: { ticker: holding.ticker, period: "3mo" },
-              user_id: userId,
-            }),
-          ]);
-
-          const priceData =
-            typeof priceRes.output?.value === "string"
-              ? JSON.parse(priceRes.output.value)
-              : priceRes.output?.value;
-
-          const companyData =
-            typeof companyRes.output?.value === "string"
-              ? JSON.parse(companyRes.output.value)
-              : companyRes.output?.value;
-
-          const newsData =
-            typeof newsRes.output?.value === "string"
-              ? JSON.parse(newsRes.output.value)
-              : newsRes.output?.value;
-
-          const historicalData =
-            typeof histRes.output?.value === "string"
-              ? JSON.parse(histRes.output.value)
-              : histRes.output?.value;
-
-          const currentPrice = priceData?.price ?? null;
-          const purchaseValue = holding.purchasePrice * holding.quantity;
-          const currentValue = currentPrice
-            ? currentPrice * holding.quantity
-            : null;
-          const gainLoss = currentValue ? currentValue - purchaseValue : null;
-          const gainLossPercent = gainLoss
-            ? (gainLoss / purchaseValue) * 100
-            : null;
-
-          return {
-            ticker: holding.ticker,
-            quantity: holding.quantity,
-            purchasePrice: holding.purchasePrice,
-            purchaseDate: holding.purchaseDate,
-            currentPrice,
-            currentValue,
-            gainLoss,
-            gainLossPercent,
-            companyInfo: companyData,
-            news: newsData?.articles || [],
-            historicalPrices: historicalData?.prices || [],
-          };
-        } catch (error) {
-          console.error(`Failed to fetch data for ${holding.ticker}:`, error);
-          return null;
-        }
-      })
-    );
-
-    const validHoldings = holdingsData.filter((h) => h !== null);
-
-    if (validHoldings.length === 0) {
-      throw new ORPCError("INTERNAL_SERVER_ERROR", {
-        message:
-          "Failed to fetch data for any holdings. Please try again later.",
-      });
-    }
-
-    // Step 3: Calculate portfolio-level metrics
-    const totalPurchaseValue = validHoldings.reduce(
-      (sum, h) => sum + h.purchasePrice * h.quantity,
-      0
-    );
-    const totalCurrentValue = validHoldings.reduce(
-      (sum, h) => sum + (h.currentValue || 0),
-      0
-    );
-    const totalGainLoss = totalCurrentValue - totalPurchaseValue;
-    const totalGainLossPercent = totalPurchaseValue > 0
-      ? (totalGainLoss / totalPurchaseValue) * 100
-      : 0;
-
-    const sortedByPerformance = [...validHoldings].sort(
-      (a, b) => (b.gainLossPercent || 0) - (a.gainLossPercent || 0)
-    );
-    const bestPerformer = sortedByPerformance[0];
-    const worstPerformer = sortedByPerformance[sortedByPerformance.length - 1];
-
     const selectedModel =
       input.model ||
       AVAILABLE_MODELS.find((m) => m.id.includes("claude"))?.id ||
       AVAILABLE_MODELS[0].id;
 
-    // Step 4: Create report with "generating" status
+    // Step 2: Calculate total purchase value for context
+    const totalPurchaseValue = portfolio.holdings.reduce(
+      (sum, h) => sum + h.purchasePrice * h.quantity,
+      0
+    );
+
+    // Step 3: Create report with "generating" status
+    // Only store basic holdings info - the agent will research the rest
     const report = await prisma.report.create({
       data: {
         portfolioId: portfolio.id,
@@ -471,36 +445,18 @@ export const initiateReport = authorized
         model: selectedModel,
         contextData: JSON.stringify({
           portfolioName: portfolio.name,
-          metrics: {
-            totalCurrentValue,
-            totalGainLoss,
-            totalGainLossPercent,
-            holdingsCount: validHoldings.length,
-          },
-          holdings: validHoldings.map((h) => ({
+          totalPurchaseValue,
+          holdings: portfolio.holdings.map((h) => ({
             ticker: h.ticker,
             quantity: h.quantity,
             purchasePrice: h.purchasePrice,
-            currentPrice: h.currentPrice,
-            currentValue: h.currentValue,
-            gainLoss: h.gainLoss,
-            gainLossPercent: h.gainLossPercent,
-            companyInfo: h.companyInfo,
-            news: h.news,
+            purchaseDate: h.purchaseDate,
           })),
-          bestPerformer: {
-            ticker: bestPerformer.ticker,
-            gainLossPercent: bestPerformer.gainLossPercent,
-          },
-          worstPerformer: {
-            ticker: worstPerformer.ticker,
-            gainLossPercent: worstPerformer.gainLossPercent,
-          },
         }),
       },
     });
 
-    // Step 5: Create output records
+    // Step 4: Create output records
     await Promise.all(
       input.outputChannels.map((channel) =>
         prisma.reportOutput.create({
@@ -513,20 +469,20 @@ export const initiateReport = authorized
       )
     );
 
-    console.log(`Report ${report.id} initiated for streaming`);
+    console.log(`Report ${report.id} initiated for agentic streaming`);
 
     return { reportId: report.id };
   });
 
 // ============================================================================
-// STREAM REPORT - Streams AI content for a generating report
+// STREAM REPORT - Agentic AI that autonomously researches and generates report
 // ============================================================================
 
 export const streamReport = authorized
   .route({
     path: "/report/stream",
     method: "POST",
-    summary: "Stream AI-generated report content",
+    summary: "Stream agentic AI-generated report with autonomous tool calling",
   })
   .input(streamReportSchema)
   .handler(async ({ context, input }) => {
@@ -546,107 +502,96 @@ export const streamReport = authorized
     }
 
     const contextData = JSON.parse(report.contextData || "{}");
-    const {
-      portfolioName,
-      metrics,
-      holdings,
-      bestPerformer,
-      worstPerformer,
-    } = contextData;
+    const { portfolioName, totalPurchaseValue, holdings } = contextData;
 
-    // Build prompts
-    const systemPrompt = `You are a financial analyst generating a comprehensive portfolio analysis report.
+    // Get user ID for Arcade tools
+    const userId = context.user.email ?? context.user.id;
 
-Your goal is to provide actionable insights based on:
-- Current market data and stock prices
-- Company fundamentals (sector, industry, market cap)
-- Recent news and market sentiment
-- Historical performance trends
-- Portfolio composition and diversification
+    // Create tools for the agent
+    const tools = createReportTools(userId);
 
-Format your response in markdown with the following sections:
+    // Agentic system prompt - tells the LLM to research autonomously
+    const systemPrompt = `You are an autonomous financial analyst agent. Your task is to analyze a portfolio and generate a comprehensive report.
+
+You have access to tools to research each holding. You should:
+1. First, get current prices for all holdings to calculate performance
+2. Identify holdings that need deeper analysis (significant gains/losses, high volatility)
+3. Research company fundamentals for context
+4. Check news for any holdings with notable price movements
+5. Look at historical trends for concerning positions
+
+IMPORTANT: Be intelligent about your research:
+- If a stock is down significantly, investigate WHY (check news, fundamentals)
+- If a stock is up significantly, check if the gains are sustainable
+- Don't waste time deeply researching stable, boring positions
+- Focus your attention where it matters most
+
+After gathering data, write your report in markdown with these sections:
 ## Executive Summary
-2-3 sentences highlighting key findings
+2-3 sentences with key findings and overall portfolio health
 
-## Portfolio Overview & Performance
-Overall metrics and comparison trends
+## Portfolio Performance
+Total value, overall gain/loss, comparison to purchase value
 
-## Individual Holdings Analysis
-For each stock: performance, outlook, risks
+## Holdings Analysis
+For each holding: current performance, key insights, outlook
+Spend more words on holdings that warrant attention
 
-## Market Sentiment & News Impact
-Synthesis of recent news across holdings
+## Market Context & News
+Synthesize relevant news that affects the portfolio
 
 ## Risk Assessment
-Concentration risk, sector exposure, volatility
+Concentration risk, sector exposure, any red flags
 
 ## Recommendations
-Specific actions: hold, buy more, sell, rebalance
+Specific, actionable advice based on your research
 
-Be specific, data-driven, and comprehensive. Target 1000-1500 words.
-Avoid generic advice - reference specific data points and news.`;
+Be data-driven and specific. Reference actual numbers and news headlines.
+Target 1000-1500 words for the final report.`;
 
-    const userPrompt = `Analyze this portfolio:
+    // User prompt with just the holdings - agent will research the rest
+    const holdingsList = holdings
+      .map((h: { ticker: string; quantity: number; purchasePrice: number; purchaseDate: string }) =>
+        `- ${h.ticker}: ${h.quantity} shares purchased at $${h.purchasePrice.toFixed(2)}${h.purchaseDate ? ` on ${new Date(h.purchaseDate).toLocaleDateString()}` : ""}`
+      )
+      .join("\n");
+
+    const userPrompt = `Analyze this portfolio and generate a comprehensive report.
 
 Portfolio: ${portfolioName}
-Total Value: $${metrics.totalCurrentValue.toFixed(2)}
-Total Gain/Loss: $${metrics.totalGainLoss.toFixed(2)} (${metrics.totalGainLossPercent.toFixed(2)}%)
-Holdings: ${metrics.holdingsCount}
+Total Purchase Value: $${totalPurchaseValue.toFixed(2)}
+Number of Holdings: ${holdings.length}
 
-Best Performer: ${bestPerformer.ticker} (${bestPerformer.gainLossPercent?.toFixed(2)}%)
-Worst Performer: ${worstPerformer.ticker} (${worstPerformer.gainLossPercent?.toFixed(2)}%)
+Holdings:
+${holdingsList}
 
-Holdings Data:
-${holdings
-  .map(
-    (h: {
-      ticker: string;
-      quantity: number;
-      purchasePrice: number;
-      currentPrice: number | null;
-      gainLoss: number | null;
-      gainLossPercent: number | null;
-      companyInfo?: { company_name?: string; sector?: string; industry?: string };
-      news?: NewsArticle[];
-    }) => `
-${h.ticker} - ${h.companyInfo?.company_name || "Unknown"}
-- Quantity: ${h.quantity} shares
-- Purchase Price: $${h.purchasePrice.toFixed(2)}
-- Current Price: $${h.currentPrice?.toFixed(2) || "N/A"}
-- Gain/Loss: $${h.gainLoss?.toFixed(2) || "N/A"} (${h.gainLossPercent?.toFixed(2) || "N/A"}%)
-- Sector: ${h.companyInfo?.sector || "Unknown"}
-- Industry: ${h.companyInfo?.industry || "Unknown"}
-- Recent News: ${h.news?.slice(0, 3).map((n: NewsArticle) => n.title).join("; ") || "No recent news"}
-`
-  )
-  .join("\n")}
+Use your tools to research each holding and generate insights. Start by getting current prices, then dig deeper into positions that need attention.`;
 
-Provide a comprehensive analysis with actionable recommendations.`;
-
-    console.log(`Streaming report ${report.id}...`);
+    console.log(`Starting agentic report generation for ${report.id}...`);
 
     const result = streamText({
       model: report.model,
       system: systemPrompt,
       prompt: userPrompt,
+      tools,
+      toolChoice: "auto",
+      stopWhen: stepCountIs(15), // Allow up to 15 tool calls for thorough research
       async onFinish({ text }) {
-        // Extract sentiment from the generated text
-        const sentimentMatch = text.match(
-          /SENTIMENT:\s*(bullish|bearish|neutral)/i
-        );
-        const sentiment = sentimentMatch
-          ? sentimentMatch[1].toLowerCase()
-          : "neutral";
-        const summary = text
-          .replace(/SENTIMENT:\s*(bullish|bearish|neutral)/i, "")
-          .trim();
+        // Determine sentiment based on content analysis
+        let sentiment = "neutral";
+        const lowerText = text.toLowerCase();
+        const bullishSignals = (lowerText.match(/bullish|strong|growth|outperform|buy|upside|positive/g) || []).length;
+        const bearishSignals = (lowerText.match(/bearish|weak|decline|underperform|sell|downside|negative|risk|concern/g) || []).length;
+
+        if (bullishSignals > bearishSignals + 2) sentiment = "bullish";
+        else if (bearishSignals > bullishSignals + 2) sentiment = "bearish";
 
         // Update report with final content
         await prisma.report.update({
           where: { id: report.id },
           data: {
             status: "completed",
-            summary,
+            summary: text.trim(),
             sentiment,
           },
         });
@@ -672,11 +617,11 @@ Provide a comprehensive analysis with actionable recommendations.`;
           console.log(`Cleaned up ${oldReports.length} old reports`);
         }
 
-        console.log(`Report ${report.id} completed with sentiment: ${sentiment}`);
+        console.log(`Agentic report ${report.id} completed with sentiment: ${sentiment}`);
       },
     });
 
-    return streamToEventIterator(result.toUIMessageStream());
+    return streamToEventIterator(result.toUIMessageStream({ sendReasoning: true }));
   });
 
 // ============================================================================
