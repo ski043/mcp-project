@@ -312,3 +312,7 @@ MIT
 ---
 
 Built with [Arcade](https://arcade.dev) | [Next.js](https://nextjs.org) | [Vercel AI SDK](https://sdk.vercel.ai)
+
+
+
+
