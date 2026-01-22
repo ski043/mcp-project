@@ -17,7 +17,7 @@ CPMarshal demonstrates how to build a production-ready AI agent using a **three-
 
 ## Architecture
 
-![Architecture Diagram](public/diagram-export-22-01-2026-16_49_29.svg)
+![Architecture Diagram](public/diagram-export-22-01-2026-16_51_42.png)
 
 ### Layer Breakdown
 
