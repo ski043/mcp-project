@@ -1,4 +1,4 @@
-import Arcade from "@arcadeai/arcadejs";
+import { Arcade } from "@arcadeai/arcadejs";
 import { ORPCError } from "@orpc/server";
 
 import { env } from "@/lib/env";
@@ -509,6 +509,7 @@ export const getDashboard = authorized
     const historicalPeriod = getHistoricalPeriod(daysSincePurchase);
 
     // Fetch historical prices for all holdings in parallel
+    console.log(`[Dashboard] Fetching historical data for ${portfolio.holdings.length} holdings, period: ${historicalPeriod}`);
     const historicalDataResults = await Promise.all(
       portfolio.holdings.map(async (holding) => {
         try {
@@ -521,12 +522,21 @@ export const getDashboard = authorized
             user_id: userId,
           });
 
-          const historicalData = typeof response.output?.value === 'string'
-            ? JSON.parse(response.output.value)
-            : response.output?.value;
+          const rawValue = response.output?.value;
+          console.log(`[Dashboard] ${holding.ticker}: raw response type: ${typeof rawValue}, preview: ${JSON.stringify(rawValue).slice(0, 200)}`);
+          
+          const historicalData = typeof rawValue === 'string'
+            ? JSON.parse(rawValue)
+            : rawValue;
+
+          // Check for error in response
+          if (historicalData?.error) {
+            console.error(`[Dashboard] ${holding.ticker}: MCP error - ${historicalData.error}`);
+          }
 
           // Extract the prices array from the response
           const prices = historicalData?.prices || [];
+          console.log(`[Dashboard] ${holding.ticker}: got ${prices.length} historical prices (data_points: ${historicalData?.data_points})`);
 
           return {
             ticker: holding.ticker,
@@ -633,6 +643,8 @@ export const getDashboard = authorized
         purchaseValue: values.purchaseValue,
       }))
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    console.log(`[Dashboard] Performance data points: ${performanceData.length}, dates collected: ${allDates.length}`);
 
     // Find best and worst performers
     const holdingsWithGains = holdingsWithPrices.filter(

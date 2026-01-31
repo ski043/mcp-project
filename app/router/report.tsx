@@ -1,7 +1,10 @@
 import { ORPCError, streamToEventIterator } from "@orpc/server";
-import { generateText, streamText, tool, stepCountIs } from "ai";
-import { z } from "zod";
-import Arcade from "@arcadeai/arcadejs";
+import { generateText, streamText, stepCountIs, type ToolSet } from "ai";
+import { Arcade } from "@arcadeai/arcadejs";
+import {
+  toZodToolSet,
+  executeOrAuthorizeZodTool,
+} from "@arcadeai/arcadejs/lib";
 
 import prisma from "@/lib/db";
 import { env } from "@/lib/env";
@@ -32,81 +35,89 @@ interface ArcadeOutputValue {
   [key: string]: unknown;
 }
 
-// ============================================================================
-// AGENTIC TOOLS - LLM decides what to research
-// ============================================================================
+// Configuration for which Arcade tools to use in reports
+const arcadeToolsConfig = {
+  // Get all tools from these MCP servers
+  mcpServers: ["FinancialMcp"],
+  // Add specific individual tools (if needed from other servers)
+  individualTools: [] as string[],
+  // Maximum tools to fetch per MCP server
+  toolLimit: 30,
+};
 
-const createReportTools = (userId: string) => ({
-  get_stock_price: tool({
-    description: "Get current stock price, volume, and daily change for a ticker. Use this to check current valuations.",
-    inputSchema: z.object({
-      ticker: z.string().describe("Stock ticker symbol (e.g., AAPL, MSFT)"),
-    }),
-    execute: async ({ ticker }) => {
-      const response = await arcadeClient.tools.execute({
-        tool_name: "FinancialMcp.GetStockPrice@1.0.0",
-        input: { ticker },
-        user_id: userId,
-      });
-      return typeof response.output?.value === "string"
-        ? JSON.parse(response.output.value)
-        : response.output?.value;
-    },
-  }),
+// Strip null and undefined values from tool inputs
+// Some LLMs send null for optional params, which can cause tool failures
+function stripNullValues(
+  obj: Record<string, unknown>
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== null && value !== undefined) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
 
-  get_company_info: tool({
-    description: "Get company fundamentals including sector, industry, market cap, and P/E ratio. Useful for understanding what the company does and its size.",
-    inputSchema: z.object({
-      ticker: z.string().describe("Stock ticker symbol"),
-    }),
-    execute: async ({ ticker }) => {
-      const response = await arcadeClient.tools.execute({
-        tool_name: "FinancialMcp.GetCompanyInfo@1.0.0",
-        input: { ticker },
-        user_id: userId,
-      });
-      return typeof response.output?.value === "string"
-        ? JSON.parse(response.output.value)
-        : response.output?.value;
-    },
-  }),
+// Adapter to convert Arcade tools to Vercel AI SDK v6 format
+function toVercelTools(arcadeTools: Record<string, unknown>): ToolSet {
+  const vercelTools: Record<string, unknown> = {};
 
-  get_company_news: tool({
-    description: "Get recent news articles about a company. Use this to understand market sentiment and recent events that might affect the stock.",
-    inputSchema: z.object({
-      ticker: z.string().describe("Stock ticker symbol"),
-      max_articles: z.number().default(5).describe("Maximum number of articles (1-10)"),
-    }),
-    execute: async ({ ticker, max_articles }) => {
-      const response = await arcadeClient.tools.execute({
-        tool_name: "FinancialMcp.GetCompanyNews@1.0.0",
-        input: { ticker, max_articles },
-        user_id: userId,
-      });
-      return typeof response.output?.value === "string"
-        ? JSON.parse(response.output.value)
-        : response.output?.value;
-    },
-  }),
+  for (const [name, tool] of Object.entries(arcadeTools)) {
+    const t = tool as {
+      description: string;
+      parameters: unknown;
+      execute: (input: Record<string, unknown>) => Promise<unknown>;
+    };
+    vercelTools[name] = {
+      description: t.description,
+      inputSchema: t.parameters, // AI SDK v6 uses inputSchema, not parameters
+      execute: async (input: Record<string, unknown>) => {
+        const cleanedInput = stripNullValues(input);
+        return t.execute(cleanedInput);
+      },
+    };
+  }
 
-  get_historical_prices: tool({
-    description: "Get historical price data to analyze trends. Use this to understand price movements over time.",
-    inputSchema: z.object({
-      ticker: z.string().describe("Stock ticker symbol"),
-      period: z.enum(["1mo", "3mo", "6mo", "1y", "2y"]).default("3mo"),
-    }),
-    execute: async ({ ticker, period }) => {
-      const response = await arcadeClient.tools.execute({
-        tool_name: "FinancialMcp.GetHistoricalPrices@1.0.0",
-        input: { ticker, period },
-        user_id: userId,
+  return vercelTools as ToolSet;
+}
+
+// Fetch and convert Arcade tools dynamically for report generation
+async function getArcadeTools(userId: string) {
+  // Fetch tools from MCP servers
+  const mcpServerTools = await Promise.all(
+    arcadeToolsConfig.mcpServers.map(async (serverName) => {
+      const response = await arcadeClient.tools.list({
+        toolkit: serverName,
+        limit: arcadeToolsConfig.toolLimit,
       });
-      return typeof response.output?.value === "string"
-        ? JSON.parse(response.output.value)
-        : response.output?.value;
-    },
-  }),
-});
+      return response.items;
+    })
+  );
+
+  // Fetch individual tools
+  const individualToolDefs = await Promise.all(
+    arcadeToolsConfig.individualTools.map((toolName) =>
+      arcadeClient.tools.get(toolName)
+    )
+  );
+
+  // Combine and deduplicate
+  const allTools = [...mcpServerTools.flat(), ...individualToolDefs];
+  const uniqueTools = Array.from(
+    new Map(allTools.map((tool) => [tool.qualified_name, tool])).values()
+  );
+
+  // Convert to Arcade's Zod format, then adapt for Vercel AI SDK
+  const arcadeTools = toZodToolSet({
+    tools: uniqueTools,
+    client: arcadeClient,
+    userId,
+    executeFactory: executeOrAuthorizeZodTool,
+  });
+
+  return toVercelTools(arcadeTools);
+}
 
 // ============================================================================
 // GENERATE REPORT - Core Agent Loop
@@ -507,8 +518,8 @@ export const streamReport = authorized
     // Get user ID for Arcade tools
     const userId = context.user.email ?? context.user.id;
 
-    // Create tools for the agent
-    const tools = createReportTools(userId);
+    // Fetch Arcade tools dynamically
+    const tools = await getArcadeTools(userId);
 
     // Agentic system prompt - tells the LLM to research autonomously
     const systemPrompt = `You are an autonomous financial analyst agent. Your task is to analyze a portfolio and generate a comprehensive report.
@@ -525,6 +536,8 @@ IMPORTANT: Be intelligent about your research:
 - If a stock is up significantly, check if the gains are sustainable
 - Don't waste time deeply researching stable, boring positions
 - Focus your attention where it matters most
+
+IMPORTANT: When calling tools, if an argument is optional, do not set it. Never pass null for optional parameters.
 
 After gathering data, write your report in markdown with these sections:
 ## Executive Summary

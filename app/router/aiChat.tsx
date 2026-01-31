@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { ORPCError, streamToEventIterator } from "@orpc/server";
 import { streamText, tool, stepCountIs } from "ai";
-import Arcade from "@arcadeai/arcadejs";
+import { Arcade } from "@arcadeai/arcadejs";
+import {
+  toZodToolSet,
+  executeOrAuthorizeZodTool,
+} from "@arcadeai/arcadejs/lib";
 
 import prisma from "@/lib/db";
 import { env } from "@/lib/env";
@@ -18,82 +22,94 @@ import { authorized } from "../middlewares/auth";
 
 const arcadeClient = new Arcade({ apiKey: env.ARCADE_API_KEY });
 
-// Create portfolio tools for chat
-const createPortfolioTools = (userId: string, userIdForDb: string) => ({
-  get_stock_price: tool({
-    description: 'Get current stock price and market data for a ticker symbol',
-    inputSchema: z.object({
-      ticker: z.string().describe('Stock ticker symbol (e.g., AAPL, MSFT)'),
-    }),
-    execute: async ({ ticker }) => {
-      const response = await arcadeClient.tools.execute({
-        tool_name: "FinancialMcp.GetStockPrice@1.0.0",
-        input: { ticker },
-        user_id: userId,
-      });
-      const data = typeof response.output?.value === 'string'
-        ? JSON.parse(response.output.value)
-        : response.output?.value;
-      return data;
-    },
-  }),
+// Configuration for which Arcade tools to use
+const arcadeToolsConfig = {
+  // Get all tools from these MCP servers
+  mcpServers: ["FinancialMcp"],
+  // Add specific individual tools (if needed from other servers)
+  individualTools: [] as string[],
+  // Maximum tools to fetch per MCP server
+  toolLimit: 30,
+};
 
-  get_company_info: tool({
-    description: 'Get company information including sector, industry, and description',
-    inputSchema: z.object({
-      ticker: z.string().describe('Stock ticker symbol'),
-    }),
-    execute: async ({ ticker }) => {
-      const response = await arcadeClient.tools.execute({
-        tool_name: "FinancialMcp.GetCompanyInfo@1.0.0",
-        input: { ticker },
-        user_id: userId,
-      });
-      const data = typeof response.output?.value === 'string'
-        ? JSON.parse(response.output.value)
-        : response.output?.value;
-      return data;
-    },
-  }),
+// Strip null and undefined values from tool inputs
+// Some LLMs send null for optional params, which can cause tool failures
+function stripNullValues(
+  obj: Record<string, unknown>
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== null && value !== undefined) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
 
-  get_company_news: tool({
-    description: 'Get recent news articles about a company',
-    inputSchema: z.object({
-      ticker: z.string().describe('Stock ticker symbol'),
-      max_articles: z.number().default(5).describe('Maximum number of articles (max 10)'),
-    }),
-    execute: async ({ ticker, max_articles }) => {
-      const response = await arcadeClient.tools.execute({
-        tool_name: "FinancialMcp.GetCompanyNews@1.0.0",
-        input: { ticker, max_articles },
-        user_id: userId,
-      });
-      const data = typeof response.output?.value === 'string'
-        ? JSON.parse(response.output.value)
-        : response.output?.value;
-      return data;
-    },
-  }),
+// Adapter to convert Arcade tools to Vercel AI SDK v6 format
+function toVercelTools(
+  arcadeTools: Record<string, unknown>
+): Record<string, unknown> {
+  const vercelTools: Record<string, unknown> = {};
 
-  get_historical_prices: tool({
-    description: 'Get historical price data for a stock over various time periods',
-    inputSchema: z.object({
-      ticker: z.string().describe('Stock ticker symbol'),
-      period: z.enum(['1mo', '3mo', '6mo', '1y', '2y']).default('3mo'),
-    }),
-    execute: async ({ ticker, period }) => {
-      const response = await arcadeClient.tools.execute({
-        tool_name: "FinancialMcp.GetHistoricalPrices@1.0.0",
-        input: { ticker, period },
-        user_id: userId,
-      });
-      const data = typeof response.output?.value === 'string'
-        ? JSON.parse(response.output.value)
-        : response.output?.value;
-      return data;
-    },
-  }),
+  for (const [name, tool] of Object.entries(arcadeTools)) {
+    const t = tool as {
+      description: string;
+      parameters: unknown;
+      execute: (input: Record<string, unknown>) => Promise<unknown>;
+    };
+    vercelTools[name] = {
+      description: t.description,
+      inputSchema: t.parameters, // AI SDK v6 uses inputSchema, not parameters
+      execute: async (input: Record<string, unknown>) => {
+        const cleanedInput = stripNullValues(input);
+        return t.execute(cleanedInput);
+      },
+    };
+  }
 
+  return vercelTools;
+}
+
+// Fetch and convert Arcade tools dynamically
+async function getArcadeTools(userId: string) {
+  // Fetch tools from MCP servers
+  const mcpServerTools = await Promise.all(
+    arcadeToolsConfig.mcpServers.map(async (serverName) => {
+      const response = await arcadeClient.tools.list({
+        toolkit: serverName,
+        limit: arcadeToolsConfig.toolLimit,
+      });
+      return response.items;
+    })
+  );
+
+  // Fetch individual tools
+  const individualToolDefs = await Promise.all(
+    arcadeToolsConfig.individualTools.map((toolName) =>
+      arcadeClient.tools.get(toolName)
+    )
+  );
+
+  // Combine and deduplicate
+  const allTools = [...mcpServerTools.flat(), ...individualToolDefs];
+  const uniqueTools = Array.from(
+    new Map(allTools.map((tool) => [tool.qualified_name, tool])).values()
+  );
+
+  // Convert to Arcade's Zod format, then adapt for Vercel AI SDK
+  const arcadeTools = toZodToolSet({
+    tools: uniqueTools,
+    client: arcadeClient,
+    userId,
+    executeFactory: executeOrAuthorizeZodTool,
+  });
+
+  return toVercelTools(arcadeTools);
+}
+
+// Create local database tools (these can't be fetched from Arcade)
+const createLocalTools = (userId: string, userIdForDb: string) => ({
   get_portfolio_holdings: tool({
     description: "Get all holdings in the user's portfolio with purchase information",
     inputSchema: z.object({}),
@@ -107,7 +123,8 @@ const createPortfolioTools = (userId: string, userIdForDb: string) => ({
   }),
 
   get_portfolio_performance: tool({
-    description: "Get portfolio performance metrics including total value, gain/loss, and current prices",
+    description:
+      "Get portfolio performance metrics including total value, gain/loss, and current prices",
     inputSchema: z.object({}),
     execute: async () => {
       const portfolio = await prisma.portfolio.findFirst({
@@ -116,10 +133,10 @@ const createPortfolioTools = (userId: string, userIdForDb: string) => ({
       });
 
       if (!portfolio || portfolio.holdings.length === 0) {
-        throw new Error('No portfolio found or portfolio is empty');
+        throw new Error("No portfolio found or portfolio is empty");
       }
 
-      // Fetch current prices for all holdings
+      // Fetch current prices for all holdings using Arcade tools
       const holdingsData = await Promise.all(
         portfolio.holdings.map(async (holding) => {
           try {
@@ -128,15 +145,20 @@ const createPortfolioTools = (userId: string, userIdForDb: string) => ({
               input: { ticker: holding.ticker },
               user_id: userId,
             });
-            const priceData = typeof response.output?.value === 'string'
-              ? JSON.parse(response.output.value)
-              : response.output?.value;
+            const priceData =
+              typeof response.output?.value === "string"
+                ? JSON.parse(response.output.value)
+                : response.output?.value;
 
             const currentPrice = priceData?.price || null;
             const purchaseValue = holding.purchasePrice * holding.quantity;
-            const currentValue = currentPrice ? currentPrice * holding.quantity : null;
+            const currentValue = currentPrice
+              ? currentPrice * holding.quantity
+              : null;
             const gainLoss = currentValue ? currentValue - purchaseValue : null;
-            const gainLossPercent = gainLoss ? (gainLoss / purchaseValue) * 100 : null;
+            const gainLossPercent = gainLoss
+              ? (gainLoss / purchaseValue) * 100
+              : null;
 
             return {
               ticker: holding.ticker,
@@ -148,23 +170,29 @@ const createPortfolioTools = (userId: string, userIdForDb: string) => ({
               gainLossPercent,
             };
           } catch (error) {
-            console.error(`Failed to fetch price for ${holding.ticker}:`, error);
+            console.error(
+              `Failed to fetch price for ${holding.ticker}:`,
+              error
+            );
             return null;
           }
         })
       );
 
-      const validHoldings = holdingsData.filter(h => h !== null);
+      const validHoldings = holdingsData.filter((h) => h !== null);
       const totalPurchaseValue = validHoldings.reduce(
-        (sum, h) => sum + (h.purchasePrice * h.quantity), 0
+        (sum, h) => sum + h.purchasePrice * h.quantity,
+        0
       );
       const totalCurrentValue = validHoldings.reduce(
-        (sum, h) => sum + (h.currentValue || 0), 0
+        (sum, h) => sum + (h.currentValue || 0),
+        0
       );
       const totalGainLoss = totalCurrentValue - totalPurchaseValue;
-      const totalGainLossPercent = totalPurchaseValue > 0
-        ? (totalGainLoss / totalPurchaseValue) * 100
-        : 0;
+      const totalGainLossPercent =
+        totalPurchaseValue > 0
+          ? (totalGainLoss / totalPurchaseValue) * 100
+          : 0;
 
       return {
         totalPurchaseValue,
@@ -397,16 +425,14 @@ export const sendMessage = authorized
       }
     }
 
-    // Convert to model messages format for AI SDK v5
-    const modelMessages = input.messages.map((m) => ({
-      role: m.role as "user" | "assistant" | "system",
-      content: m.content,
-    }));
-
-    // Create portfolio tools with proper user IDs
+    // User IDs for tools
     const userId = context.user.email ?? context.user.id;
     const userIdForDb = context.user.id;
-    const portfolioTools = createPortfolioTools(userId, userIdForDb);
+
+    // Fetch Arcade tools dynamically and combine with local tools
+    const arcadeTools = await getArcadeTools(userId);
+    const localTools = createLocalTools(userId, userIdForDb);
+    const allTools = { ...arcadeTools, ...localTools };
 
     // Enhanced system prompt when tools are available
     const toolSystemPrompt = `You are a financial assistant with access to real-time market data and the user's portfolio.
@@ -425,26 +451,27 @@ When answering questions:
 4. Provide context and analysis, not just raw data
 5. If the user asks about "my portfolio" or "my holdings", use get_portfolio_holdings or get_portfolio_performance first
 
-Always indicate when data is real-time vs. historical.`;
+Always indicate when data is real-time vs. historical.
+
+IMPORTANT: When calling tools, if an argument is optional, do not set it. Never pass null for optional parameters.`;
+
+    // Convert messages to model format
+    const modelMessages = input.messages.map((m) => ({
+      role: m.role as "user" | "assistant" | "system",
+      content: m.content,
+    }));
 
     // Add system prompt (custom or tool-enhanced)
-    const allMessages = chat.systemPrompt
-      ? [
-          { role: "system" as const, content: chat.systemPrompt },
-          ...modelMessages,
-        ]
-      : [
-          { role: "system" as const, content: toolSystemPrompt },
-          ...modelMessages,
-        ];
+    const systemPrompt = chat.systemPrompt || toolSystemPrompt;
 
     // With Vercel AI Gateway, just pass the model string directly
     // Format: "provider/model-name" (e.g., "anthropic/claude-sonnet-4-20250514")
     const result = streamText({
       model: chat.model,
-      messages: allMessages,
-      tools: portfolioTools,
-      toolChoice: 'auto',
+      system: systemPrompt,
+      messages: modelMessages,
+      tools: allTools,
+      toolChoice: "auto",
       stopWhen: stepCountIs(5),
       onFinish: async ({ text }) => {
         try {
@@ -494,18 +521,14 @@ export const regenerateMessage = authorized
       });
     }
 
-    // Convert to model messages format for AI SDK v5
-    const modelMessages = input.messages.map(
-      (m: { role: string; content: string }) => ({
-        role: m.role as "user" | "assistant" | "system",
-        content: m.content,
-      })
-    );
-
-    // Create portfolio tools with proper user IDs
+    // User IDs for tools
     const userId = context.user.email ?? context.user.id;
     const userIdForDb = context.user.id;
-    const portfolioTools = createPortfolioTools(userId, userIdForDb);
+
+    // Fetch Arcade tools dynamically and combine with local tools
+    const arcadeTools = await getArcadeTools(userId);
+    const localTools = createLocalTools(userId, userIdForDb);
+    const allTools = { ...arcadeTools, ...localTools };
 
     // Enhanced system prompt when tools are available
     const toolSystemPrompt = `You are a financial assistant with access to real-time market data and the user's portfolio.
@@ -524,25 +547,26 @@ When answering questions:
 4. Provide context and analysis, not just raw data
 5. If the user asks about "my portfolio" or "my holdings", use get_portfolio_holdings or get_portfolio_performance first
 
-Always indicate when data is real-time vs. historical.`;
+Always indicate when data is real-time vs. historical.
+
+IMPORTANT: When calling tools, if an argument is optional, do not set it. Never pass null for optional parameters.`;
+
+    // Convert messages to model format
+    const modelMessages = input.messages.map((m) => ({
+      role: m.role as "user" | "assistant" | "system",
+      content: m.content,
+    }));
 
     // Add system prompt (custom or tool-enhanced)
-    const allMessages = chat.systemPrompt
-      ? [
-          { role: "system" as const, content: chat.systemPrompt },
-          ...modelMessages,
-        ]
-      : [
-          { role: "system" as const, content: toolSystemPrompt },
-          ...modelMessages,
-        ];
+    const systemPrompt = chat.systemPrompt || toolSystemPrompt;
 
     // With Vercel AI Gateway, just pass the model string directly
     const result = streamText({
       model: chat.model,
-      messages: allMessages,
-      tools: portfolioTools,
-      toolChoice: 'auto',
+      system: systemPrompt,
+      messages: modelMessages,
+      tools: allTools,
+      toolChoice: "auto",
       stopWhen: stepCountIs(5),
       onFinish: async ({ text }) => {
         try {
@@ -562,4 +586,27 @@ Always indicate when data is real-time vs. historical.`;
     return streamToEventIterator(
       result.toUIMessageStream({ sendReasoning: true })
     );
+  });
+
+// Check authorization status for a tool (used for OAuth polling)
+export const checkAuthStatus = authorized
+  .route({
+    path: "/ai-chat/auth-status",
+    method: "POST",
+    summary: "Check tool authorization status",
+  })
+  .input(z.object({ toolName: z.string() }))
+  .handler(async ({ context, input }) => {
+    const userId = context.user.email ?? context.user.id;
+
+    try {
+      const authResponse = await arcadeClient.tools.authorize({
+        tool_name: input.toolName,
+        user_id: userId,
+      });
+      return { status: authResponse.status };
+    } catch (error) {
+      console.error("Auth status check error:", error);
+      return { status: "error", error: String(error) };
+    }
   });

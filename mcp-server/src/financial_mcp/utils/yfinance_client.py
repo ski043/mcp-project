@@ -126,18 +126,24 @@ class YFinanceClient:
 
         try:
             stock = yf.Ticker(ticker)
-            # Use repair=True to fix Yahoo's data errors
-            hist = stock.history(period=period, repair=True)
+            # Fetch historical data WITHOUT repair to avoid read-only array issues
+            # The repair=True flag causes "output array is read-only" errors in some environments
+            hist = stock.history(period=period)
 
             if hist.empty:
                 raise ValueError(f"No historical data available for ticker: {ticker}")
 
-            # Convert to list of date/price dicts
+            # Convert to Python native types immediately to avoid numpy/pandas issues
+            # Extract data using .tolist() which creates Python native objects
+            dates = hist.index.tolist()
+            closes = hist["Close"].tolist()
+            
+            # Build result list with Python native types only
             result = []
-            for date, row in hist.iterrows():
+            for i in range(len(dates)):
                 result.append({
-                    "date": date.strftime("%Y-%m-%d"),
-                    "close_price": round(float(row["Close"]), 2)
+                    "date": dates[i].strftime("%Y-%m-%d"),
+                    "close_price": round(float(closes[i]), 2)
                 })
 
             return result

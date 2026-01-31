@@ -8,6 +8,7 @@ import {
   sendMessage,
   regenerateMessage,
   getChat,
+  checkAuthStatus,
 } from "./aiChat";
 import { getCurrentUser } from "./user";
 import { arcadeNoAuthTest, arcadeOAuthDocTest } from "./arcadeTest";
@@ -48,6 +49,7 @@ export const router = {
     models: getModels,
     send: sendMessage,
     regenerate: regenerateMessage,
+    authStatus: checkAuthStatus,
   },
   user: {
     current: getCurrentUser,

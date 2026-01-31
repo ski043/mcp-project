@@ -42,16 +42,21 @@ def test_news():
         return False
 
 def test_historical():
-    """Test getting historical prices."""
-    print("\nTesting get_historical_prices for TSLA (1mo)...")
-    try:
-        client = YFinanceClient()
-        history = client.get_historical_prices("TSLA", period="1mo")
-        print(f"✓ Success: Got {len(history)} data points")
-        return True
-    except Exception as e:
-        print(f"✗ Error: {e}")
-        return False
+    """Test getting historical prices for all periods."""
+    periods = ["1mo", "3mo", "6mo", "1y", "2y"]
+    client = YFinanceClient()
+    all_passed = True
+    
+    for period in periods:
+        print(f"\nTesting get_historical_prices for AAPL ({period})...")
+        try:
+            history = client.get_historical_prices("AAPL", period=period)
+            print(f"✓ Success: Got {len(history)} data points")
+        except Exception as e:
+            print(f"✗ Error: {e}")
+            all_passed = False
+    
+    return all_passed
 
 if __name__ == "__main__":
     print("=" * 50)
