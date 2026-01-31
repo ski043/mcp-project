@@ -403,45 +403,78 @@ export const getDashboard = authorized
 
     const userId = context.user.email ?? context.user.id;
 
-    // Fetch current prices for all holdings in parallel
-    const holdingsWithPrices = await Promise.all(
+    // Calculate historical period upfront (doesn't depend on API calls)
+    const earliestPurchaseDate = portfolio.holdings.reduce(
+      (earliest, holding) =>
+        holding.purchaseDate < earliest ? holding.purchaseDate : earliest,
+      portfolio.holdings[0]?.purchaseDate ?? new Date()
+    );
+    const daysSincePurchase = Math.floor(
+      (Date.now() - earliestPurchaseDate.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    const historicalPeriod = getHistoricalPeriod(daysSincePurchase);
+
+    // Fetch ALL data in parallel: prices, company info, AND historical data
+    const allDataResults = await Promise.all(
       portfolio.holdings.map(async (holding) => {
-        try {
-          const [priceResponse, companyResponse] = await Promise.all([
-            arcadeClient.tools.execute({
-              tool_name: "FinancialMcp.GetStockPrice@1.0.0",
-              input: { ticker: holding.ticker },
-              user_id: userId,
-            }),
-            arcadeClient.tools.execute({
-              tool_name: "FinancialMcp.GetCompanyInfo@1.0.0",
-              input: { ticker: holding.ticker },
-              user_id: userId,
-            }),
-          ]);
+        // Run all 3 API calls for this holding in parallel
+        const [priceResult, companyResult, historicalResult] = await Promise.allSettled([
+          arcadeClient.tools.execute({
+            tool_name: "FinancialMcp.GetStockPrice@1.0.0",
+            input: { ticker: holding.ticker },
+            user_id: userId,
+          }),
+          arcadeClient.tools.execute({
+            tool_name: "FinancialMcp.GetCompanyInfo@1.0.0",
+            input: { ticker: holding.ticker },
+            user_id: userId,
+          }),
+          arcadeClient.tools.execute({
+            tool_name: "FinancialMcp.GetHistoricalPrices@1.0.0",
+            input: { ticker: holding.ticker, period: historicalPeriod },
+            user_id: userId,
+          }),
+        ]);
 
-          // Parse the JSON string responses
-          const priceData = typeof priceResponse.output?.value === 'string'
-            ? JSON.parse(priceResponse.output.value) as StockPriceData
-            : priceResponse.output?.value as StockPriceData;
+        // Parse price data
+        let priceData: StockPriceData = null;
+        if (priceResult.status === "fulfilled") {
+          const rawValue = priceResult.value.output?.value;
+          priceData = typeof rawValue === "string"
+            ? JSON.parse(rawValue)
+            : rawValue;
+        }
 
-          const companyData = typeof companyResponse.output?.value === 'string'
-            ? JSON.parse(companyResponse.output.value) as CompanyInfoData
-            : companyResponse.output?.value as CompanyInfoData;
+        // Parse company data
+        let companyData: CompanyInfoData = null;
+        if (companyResult.status === "fulfilled") {
+          const rawValue = companyResult.value.output?.value;
+          companyData = typeof rawValue === "string"
+            ? JSON.parse(rawValue)
+            : rawValue;
+        }
 
-          const currentPrice = priceData?.price ?? null;
+        // Parse historical data
+        let historicalPrices: Array<{ date: string; close_price?: number }> = [];
+        if (historicalResult.status === "fulfilled") {
+          const rawValue = historicalResult.value.output?.value;
+          const historicalData = typeof rawValue === "string"
+            ? JSON.parse(rawValue)
+            : rawValue;
+          historicalPrices = Array.isArray(historicalData?.prices)
+            ? historicalData.prices
+            : [];
+        }
 
-          // Calculate holding metrics
-          const purchaseValue = holding.purchasePrice * holding.quantity;
-          const currentValue = currentPrice
-            ? currentPrice * holding.quantity
-            : null;
-          const gainLoss = currentValue ? currentValue - purchaseValue : null;
-          const gainLossPercent = gainLoss
-            ? (gainLoss / purchaseValue) * 100
-            : null;
+        const currentPrice = priceData?.price ?? null;
+        const purchaseValue = holding.purchasePrice * holding.quantity;
+        const currentValue = currentPrice ? currentPrice * holding.quantity : null;
+        const gainLoss = currentValue ? currentValue - purchaseValue : null;
+        const gainLossPercent = gainLoss ? (gainLoss / purchaseValue) * 100 : null;
 
-          return {
+        return {
+          // Holding with prices data
+          holding: {
             id: holding.id,
             ticker: holding.ticker,
             quantity: holding.quantity,
@@ -452,30 +485,24 @@ export const getDashboard = authorized
             gainLoss,
             gainLossPercent,
             companyName: companyData?.company_name ?? null,
-          };
-        } catch (error) {
-          console.error(
-            `Failed to fetch price for ${holding.ticker}:`,
-            error
-          );
-          return {
-            id: holding.id,
+          },
+          // Historical data
+          historical: {
             ticker: holding.ticker,
             quantity: holding.quantity,
             purchasePrice: holding.purchasePrice,
             purchaseDate: holding.purchaseDate,
-            currentPrice: null,
-            currentValue: null,
-            gainLoss: null,
-            gainLossPercent: null,
-            companyName: null,
-          };
-        }
+            historicalPrices,
+          },
+        };
       })
     );
 
+    // Extract holdings with prices and historical data
+    const holdingsWithPrices = allDataResults.map((r) => r.holding);
+    const historicalDataResults = allDataResults.map((r) => r.historical);
+
     // Calculate portfolio-level metrics
-    // Only include holdings with valid current prices in calculations
     const validHoldings = holdingsWithPrices.filter((h) => h.currentValue !== null);
 
     const totalPurchaseValue = validHoldings.reduce(
@@ -494,69 +521,6 @@ export const getDashboard = authorized
       totalGainLoss !== null && totalPurchaseValue > 0
         ? (totalGainLoss / totalPurchaseValue) * 100
         : null;
-
-    // Fetch historical data for performance chart
-    const earliestPurchaseDate = portfolio.holdings.reduce(
-      (earliest, holding) =>
-        holding.purchaseDate < earliest ? holding.purchaseDate : earliest,
-      portfolio.holdings[0]?.purchaseDate ?? new Date()
-    );
-
-    // Determine the period based on how long ago the earliest purchase was
-    const daysSincePurchase = Math.floor(
-      (Date.now() - earliestPurchaseDate.getTime()) / (1000 * 60 * 60 * 24)
-    );
-    const historicalPeriod = getHistoricalPeriod(daysSincePurchase);
-
-    // Fetch historical prices for all holdings in parallel
-    console.log(`[Dashboard] Fetching historical data for ${portfolio.holdings.length} holdings, period: ${historicalPeriod}`);
-    const historicalDataResults = await Promise.all(
-      portfolio.holdings.map(async (holding) => {
-        try {
-          const response = await arcadeClient.tools.execute({
-            tool_name: "FinancialMcp.GetHistoricalPrices@1.0.0",
-            input: {
-              ticker: holding.ticker,
-              period: historicalPeriod,
-            },
-            user_id: userId,
-          });
-
-          const rawValue = response.output?.value;
-          console.log(`[Dashboard] ${holding.ticker}: raw response type: ${typeof rawValue}, preview: ${JSON.stringify(rawValue).slice(0, 200)}`);
-          
-          const historicalData = typeof rawValue === 'string'
-            ? JSON.parse(rawValue)
-            : rawValue;
-
-          // Check for error in response
-          if (historicalData?.error) {
-            console.error(`[Dashboard] ${holding.ticker}: MCP error - ${historicalData.error}`);
-          }
-
-          // Extract the prices array from the response
-          const prices = historicalData?.prices || [];
-          console.log(`[Dashboard] ${holding.ticker}: got ${prices.length} historical prices (data_points: ${historicalData?.data_points})`);
-
-          return {
-            ticker: holding.ticker,
-            quantity: holding.quantity,
-            purchasePrice: holding.purchasePrice,
-            purchaseDate: holding.purchaseDate,
-            historicalPrices: Array.isArray(prices) ? prices : [],
-          };
-        } catch (error) {
-          console.error(`Failed to fetch historical data for ${holding.ticker}:`, error);
-          return {
-            ticker: holding.ticker,
-            quantity: holding.quantity,
-            purchasePrice: holding.purchasePrice,
-            purchaseDate: holding.purchaseDate,
-            historicalPrices: [],
-          };
-        }
-      })
-    );
 
     // Build performance data points with forward-fill for missing data
     // First, collect all unique dates across all holdings
