@@ -188,14 +188,6 @@ The `stopWhen: stepCountIs(15)` allows the agent to:
 - Showcases Arcade's tool execution
 - Production-ready pattern for agentic applications
 
-### For the Video
-This transformation is the perfect story:
-1. "Here's how most AI apps work—data pipeline to LLM"
-2. "But that's not really intelligence..."
-3. "Watch what happens when we give the LLM agency"
-4. "It decides what to research based on what it finds"
-5. "This is what Arcade enables—real AI agents with real tools"
-
 ## Files Changed
 
 | File | Change |
