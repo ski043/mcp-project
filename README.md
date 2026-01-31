@@ -1,10 +1,10 @@
-# CPMarshal - AI-Powered Portfolio Intelligence
+# MCPMarshal - Financial AI Agent
 
-An intelligent financial agent that analyzes your investment portfolio, fetches real-time market data, and delivers personalized insights through multiple channels—all powered by [Arcade](https://arcade.dev).
+An intelligent financial AI agent that analyzes your investment portfolio, fetches real-time market data, and delivers personalized insights through multiple channels, all powered by [Arcade](https://arcade.dev).
 
 ## Overview
 
-CPMarshal demonstrates how to build a production-ready AI agent using a **three-layer architecture** that separates concerns between data sourcing, persistent memory, and multi-channel presentation. The application showcases Arcade's seamless OAuth handling for Gmail, Notion, and Google Docs integration.
+MCPMarshal demonstrates how to build a production-ready AI agent using a **three-layer architecture** that separates concerns between data sourcing, persistent memory, and multi-channel presentation. The application showcases Arcade's seamless OAuth handling for Gmail, Notion, and Google Docs integration.
 
 ### What It Does
 
