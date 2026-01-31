@@ -25,9 +25,13 @@ const arcadeClient = new Arcade({ apiKey: env.ARCADE_API_KEY });
 // Configuration for which Arcade tools to use
 const arcadeToolsConfig = {
   // Get all tools from these MCP servers
-  mcpServers: ["FinancialMcp"],
-  // Add specific individual tools (if needed from other servers)
-  individualTools: [] as string[],
+  mcpServers: ["FinancialMcp", "Slack"],
+  // Add specific individual tools (Gmail tools, etc.)
+  individualTools: [
+    "Gmail_ListEmails",
+    "Gmail_SendEmail", 
+    "Gmail_WhoAmI",
+  ],
   // Maximum tools to fetch per MCP server
   toolLimit: 30,
 };
@@ -435,7 +439,7 @@ export const sendMessage = authorized
     const allTools = { ...arcadeTools, ...localTools };
 
     // Enhanced system prompt when tools are available
-    const toolSystemPrompt = `You are a financial assistant with access to real-time market data and the user's portfolio.
+    const toolSystemPrompt = `You are a helpful assistant with access to real-time market data, the user's portfolio, Gmail, and Slack.
 
 You can:
 - Look up current stock prices and market data
@@ -443,6 +447,8 @@ You can:
 - Fetch recent news about companies
 - View historical price trends
 - Access the user's portfolio holdings and performance
+- Read and send emails via Gmail
+- Send messages and interact with Slack
 
 When answering questions:
 1. Use tools to fetch current data rather than relying on outdated information
@@ -451,7 +457,12 @@ When answering questions:
 4. Provide context and analysis, not just raw data
 5. If the user asks about "my portfolio" or "my holdings", use get_portfolio_holdings or get_portfolio_performance first
 
+For Gmail:
+- To find sent emails, use the query parameter with "in:sent"
+- To find received emails, use "in:inbox" or no query
+
 Always indicate when data is real-time vs. historical.
+Do not tell users to authorize manually - just call the tool and the system will handle authorization if needed.
 
 IMPORTANT: When calling tools, if an argument is optional, do not set it. Never pass null for optional parameters.`;
 
@@ -531,7 +542,7 @@ export const regenerateMessage = authorized
     const allTools = { ...arcadeTools, ...localTools };
 
     // Enhanced system prompt when tools are available
-    const toolSystemPrompt = `You are a financial assistant with access to real-time market data and the user's portfolio.
+    const toolSystemPrompt = `You are a helpful assistant with access to real-time market data, the user's portfolio, Gmail, and Slack.
 
 You can:
 - Look up current stock prices and market data
@@ -539,6 +550,8 @@ You can:
 - Fetch recent news about companies
 - View historical price trends
 - Access the user's portfolio holdings and performance
+- Read and send emails via Gmail
+- Send messages and interact with Slack
 
 When answering questions:
 1. Use tools to fetch current data rather than relying on outdated information
@@ -547,7 +560,12 @@ When answering questions:
 4. Provide context and analysis, not just raw data
 5. If the user asks about "my portfolio" or "my holdings", use get_portfolio_holdings or get_portfolio_performance first
 
+For Gmail:
+- To find sent emails, use the query parameter with "in:sent"
+- To find received emails, use "in:inbox" or no query
+
 Always indicate when data is real-time vs. historical.
+Do not tell users to authorize manually - just call the tool and the system will handle authorization if needed.
 
 IMPORTANT: When calling tools, if an argument is optional, do not set it. Never pass null for optional parameters.`;
 

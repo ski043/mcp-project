@@ -16,6 +16,13 @@ import {
   ReasoningContent,
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
+import {
+  Tool,
+  ToolContent,
+  ToolHeader,
+  ToolInput,
+  ToolOutput,
+} from "@/components/ai-elements/tool";
 import { Loader } from "@/components/ai-elements/loader";
 import { Button } from "@/components/ui/button";
 
@@ -93,6 +100,50 @@ export function ChatMessages({
                         </MessageActions>
                       )}
                   </Message>
+                );
+              }
+
+              // Handle tool parts (type starts with "tool-")
+              if (part.type.startsWith("tool-")) {
+                const toolPart = part as {
+                  type: `tool-${string}`;
+                  state:
+                    | "input-streaming"
+                    | "input-available"
+                    | "output-available"
+                    | "output-error";
+                  input?: unknown;
+                  output?: unknown;
+                  errorText?: string;
+                };
+
+                // Auto-open completed or error tools
+                const shouldOpen =
+                  toolPart.state === "output-available" ||
+                  toolPart.state === "output-error";
+
+                return (
+                  <div
+                    key={`${message.id}-${partIndex}`}
+                    className="my-2 ml-10"
+                  >
+                    <Tool defaultOpen={shouldOpen}>
+                      <ToolHeader
+                        type={toolPart.type}
+                        state={toolPart.state}
+                      />
+                      <ToolContent>
+                        <ToolInput input={toolPart.input} />
+                        {(toolPart.state === "output-available" ||
+                          toolPart.state === "output-error") && (
+                          <ToolOutput
+                            output={toolPart.output}
+                            errorText={toolPart.errorText}
+                          />
+                        )}
+                      </ToolContent>
+                    </Tool>
+                  </div>
                 );
               }
 
