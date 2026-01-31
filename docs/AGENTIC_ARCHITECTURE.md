@@ -14,12 +14,12 @@ This approach has limitations:
 - **Wasteful**: Fetches data that may not be relevant
 - **Unintelligent**: Treats all holdings equally regardless of significance
 - **Brittle**: Fixed sequence that can't adapt to findings
-- **Not truly "AI"**: The LLM just summarizes—it doesn't think
+- **Not truly "AI"**: The LLM just summarizes, it doesn't think
 
 ## Pipeline Approach (Before)
 
 ```typescript
-// The code decided what to fetch—not the AI
+// The code decided what to fetch, not the AI
 const holdingsData = await Promise.all(
   portfolio.holdings.map(async (holding) => {
     // Always fetch everything for every holding
@@ -100,7 +100,7 @@ const result = streamText({
 ### Agent Output
 > "**Alert: AAPL requires attention.** Down 15% amid reports of iPhone sales weakness in China (Reuters, Jan 15). The company's forward P/E remains elevated at 28x despite slowing growth.
 >
-> **NVDA is your star performer** at +45%, driven by continued AI chip demand. However, the stock now trades at 65x earnings—consider taking partial profits.
+> **NVDA is your star performer** at +45%, driven by continued AI chip demand. However, the stock now trades at 65x earnings. Consider taking partial profits.
 >
 > MSFT remains stable (+2%), performing in line with the broader market.
 >
@@ -134,7 +134,7 @@ const tools = {
 
 ### Agentic Prompt
 
-The system prompt is crucial—it tells the LLM HOW to be an agent:
+The system prompt is crucial. It tells the LLM HOW to be an agent:
 
 ```typescript
 const systemPrompt = `You are an autonomous financial analyst agent.
@@ -197,7 +197,7 @@ The `stopWhen: stepCountIs(15)` allows the agent to:
 
 ## Conclusion
 
-The shift from pipeline to agent isn't just a code change—it's a paradigm shift. Instead of treating the LLM as a summarization engine, we're treating it as an autonomous researcher that can:
+The shift from pipeline to agent isn't just a code change. It's a paradigm shift. Instead of treating the LLM as a summarization engine, we're treating it as an autonomous researcher that can:
 
 - **Observe**: Get initial data
 - **Orient**: Identify what's interesting
