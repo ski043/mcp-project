@@ -120,7 +120,8 @@ mcp-server/
 
 ```bash
 cd mcp-server
-arcade deploy
+uv tool install arcade-mcp  # Install CLI if needed
+arcade deploy -e src/financial_mcp/server.py
 ```
 
 Once deployed, the MCP server is accessible through Arcade's tool execution API, enabling the AI chat and report generation features.
@@ -243,8 +244,9 @@ Once deployed, the MCP server is accessible through Arcade's tool execution API,
 5. **Deploy the MCP server to Arcade**
    ```bash
    cd mcp-server
-   pip install -e .
-   arcade deploy
+   uv sync
+   uv tool install arcade-mcp
+   arcade deploy -e src/financial_mcp/server.py
    ```
 
 6. **Start the development server**
@@ -294,7 +296,7 @@ Deploy the MCP server to Arcade:
 
 ```bash
 cd mcp-server
-arcade deploy
+arcade deploy -e src/financial_mcp/server.py
 ```
 
 ## Demo Walkthrough

@@ -34,7 +34,11 @@ uv sync
 ### Deploy to Arcade
 
 ```bash
-arcade deploy
+# Install Arcade CLI (if not already installed)
+uv tool install arcade-mcp
+
+# Deploy (run from mcp-server directory)
+arcade deploy -e src/financial_mcp/server.py
 ```
 
 Once deployed, the tools are accessible via the Arcade SDK:
