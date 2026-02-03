@@ -25,7 +25,7 @@ const arcadeClient = new Arcade({ apiKey: env.ARCADE_API_KEY });
 // Configuration for which Arcade tools to use
 const arcadeToolsConfig = {
   // Get all tools from these MCP servers
-  mcpServers: ["FinancialMcp", "Slack"],
+  mcpServers: ["FinancialMcp"],
   // Add specific individual tools (Gmail tools, etc.)
   individualTools: [
     "Gmail_ListEmails",
@@ -210,6 +210,120 @@ const createLocalTools = (userId: string, userIdForDb: string) => ({
   }),
 });
 
+
+export const sendMessage = authorized
+  .route({
+    path: "/ai-chat/send",
+    method: "POST",
+    summary: "Stream message response",
+  })
+  .input(sendMessageSchema)
+  .handler(async ({ context, input }) => {
+    const chat = await prisma.chat.findFirst({
+      where: { id: input.chatId, userId: context.user.id },
+    });
+
+    if (!chat) {
+      throw new ORPCError("NOT_FOUND", { message: "Chat not found" });
+    }
+
+    // Get the last user message to save
+    const lastUserMessage = input.messages.findLast((m) => m.role === "user");
+    if (lastUserMessage) {
+      await prisma.message.create({
+        data: {
+          chatId: input.chatId,
+          role: "user",
+          content: lastUserMessage.content,
+        },
+      });
+
+      // Auto-generate title from first message if still "New Chat"
+      if (chat.title === "New Chat") {
+        const title = lastUserMessage.content.slice(0, 100);
+        await prisma.chat.update({
+          where: { id: input.chatId },
+          data: { title },
+        });
+      }
+    }
+
+    // User IDs for tools
+    const userId = context.user.email ?? context.user.id;
+    const userIdForDb = context.user.id;
+
+    // Fetch Arcade tools dynamically and combine with local tools
+    const arcadeTools = await getArcadeTools(userId);
+    const localTools = createLocalTools(userId, userIdForDb);
+    const allTools = { ...arcadeTools, ...localTools };
+
+    // Enhanced system prompt when tools are available
+    const toolSystemPrompt = `You are a helpful assistant with access to real-time market data, the user's portfolio, Gmail, and Slack.
+
+You can:
+- Look up current stock prices and market data
+- Get company information and fundamentals
+- Fetch recent news about companies
+- View historical price trends
+- Access the user's portfolio holdings and performance
+- Read and send emails via Gmail
+- Send messages and interact with Slack
+
+When answering questions:
+1. Use tools to fetch current data rather than relying on outdated information
+2. Be specific with numbers and dates
+3. Synthesize information from multiple sources when relevant
+4. Provide context and analysis, not just raw data
+5. If the user asks about "my portfolio" or "my holdings", use get_portfolio_holdings or get_portfolio_performance first
+
+For Gmail:
+- To find sent emails, use the query parameter with "in:sent"
+- To find received emails, use "in:inbox" or no query
+
+Always indicate when data is real-time vs. historical.
+
+AUTHORIZATION: When a tool returns an authorization_required response with a URL, you MUST present that URL to the user clearly. Format it as a clickable link and explain they need to authorize access. Example: "To access Gmail, please authorize here: [authorization URL]". After they authorize, they can retry their request.
+
+IMPORTANT: When calling tools, if an argument is optional, do not set it. Never pass null for optional parameters.`;
+
+    // Convert messages to model format
+    const modelMessages = input.messages.map((m) => ({
+      role: m.role as "user" | "assistant" | "system",
+      content: m.content,
+    }));
+
+    // Add system prompt (custom or tool-enhanced)
+    const systemPrompt = chat.systemPrompt || toolSystemPrompt;
+
+    // With Vercel AI Gateway, just pass the model string directly
+    // Format: "provider/model-name" (e.g., "anthropic/claude-sonnet-4-20250514")
+    const result = streamText({
+      model: chat.model,
+      system: systemPrompt,
+      messages: modelMessages,
+      tools: allTools,
+      toolChoice: "auto",
+      stopWhen: stepCountIs(5),
+      onFinish: async ({ text }) => {
+        try {
+          await prisma.message.create({
+            data: {
+              chatId: input.chatId,
+              role: "assistant",
+              content: text,
+            },
+          });
+        } catch (error) {
+          console.error("Failed to persist assistant message:", error);
+        }
+      },
+    });
+
+    return streamToEventIterator(
+      result.toUIMessageStream({ sendReasoning: true })
+    );
+  });
+
 export const listChats = authorized
   .route({
     path: "/ai-chat/list",
@@ -392,117 +506,7 @@ export const getModels = authorized
     return { models: AVAILABLE_MODELS };
   });
 
-export const sendMessage = authorized
-  .route({
-    path: "/ai-chat/send",
-    method: "POST",
-    summary: "Stream message response",
-  })
-  .input(sendMessageSchema)
-  .handler(async ({ context, input }) => {
-    const chat = await prisma.chat.findFirst({
-      where: { id: input.chatId, userId: context.user.id },
-    });
 
-    if (!chat) {
-      throw new ORPCError("NOT_FOUND", { message: "Chat not found" });
-    }
-
-    // Get the last user message to save
-    const lastUserMessage = input.messages.findLast((m) => m.role === "user");
-    if (lastUserMessage) {
-      await prisma.message.create({
-        data: {
-          chatId: input.chatId,
-          role: "user",
-          content: lastUserMessage.content,
-        },
-      });
-
-      // Auto-generate title from first message if still "New Chat"
-      if (chat.title === "New Chat") {
-        const title = lastUserMessage.content.slice(0, 100);
-        await prisma.chat.update({
-          where: { id: input.chatId },
-          data: { title },
-        });
-      }
-    }
-
-    // User IDs for tools
-    const userId = context.user.email ?? context.user.id;
-    const userIdForDb = context.user.id;
-
-    // Fetch Arcade tools dynamically and combine with local tools
-    const arcadeTools = await getArcadeTools(userId);
-    const localTools = createLocalTools(userId, userIdForDb);
-    const allTools = { ...arcadeTools, ...localTools };
-
-    // Enhanced system prompt when tools are available
-    const toolSystemPrompt = `You are a helpful assistant with access to real-time market data, the user's portfolio, Gmail, and Slack.
-
-You can:
-- Look up current stock prices and market data
-- Get company information and fundamentals
-- Fetch recent news about companies
-- View historical price trends
-- Access the user's portfolio holdings and performance
-- Read and send emails via Gmail
-- Send messages and interact with Slack
-
-When answering questions:
-1. Use tools to fetch current data rather than relying on outdated information
-2. Be specific with numbers and dates
-3. Synthesize information from multiple sources when relevant
-4. Provide context and analysis, not just raw data
-5. If the user asks about "my portfolio" or "my holdings", use get_portfolio_holdings or get_portfolio_performance first
-
-For Gmail:
-- To find sent emails, use the query parameter with "in:sent"
-- To find received emails, use "in:inbox" or no query
-
-Always indicate when data is real-time vs. historical.
-Do not tell users to authorize manually - just call the tool and the system will handle authorization if needed.
-
-IMPORTANT: When calling tools, if an argument is optional, do not set it. Never pass null for optional parameters.`;
-
-    // Convert messages to model format
-    const modelMessages = input.messages.map((m) => ({
-      role: m.role as "user" | "assistant" | "system",
-      content: m.content,
-    }));
-
-    // Add system prompt (custom or tool-enhanced)
-    const systemPrompt = chat.systemPrompt || toolSystemPrompt;
-
-    // With Vercel AI Gateway, just pass the model string directly
-    // Format: "provider/model-name" (e.g., "anthropic/claude-sonnet-4-20250514")
-    const result = streamText({
-      model: chat.model,
-      system: systemPrompt,
-      messages: modelMessages,
-      tools: allTools,
-      toolChoice: "auto",
-      stopWhen: stepCountIs(5),
-      onFinish: async ({ text }) => {
-        try {
-          await prisma.message.create({
-            data: {
-              chatId: input.chatId,
-              role: "assistant",
-              content: text,
-            },
-          });
-        } catch (error) {
-          console.error("Failed to persist assistant message:", error);
-        }
-      },
-    });
-
-    return streamToEventIterator(
-      result.toUIMessageStream({ sendReasoning: true })
-    );
-  });
 
 export const regenerateMessage = authorized
   .route({
@@ -565,7 +569,8 @@ For Gmail:
 - To find received emails, use "in:inbox" or no query
 
 Always indicate when data is real-time vs. historical.
-Do not tell users to authorize manually - just call the tool and the system will handle authorization if needed.
+
+AUTHORIZATION: When a tool returns an authorization_required response with a URL, you MUST present that URL to the user clearly. Format it as a clickable link and explain they need to authorize access. Example: "To access Gmail, please authorize here: [authorization URL]". After they authorize, they can retry their request.
 
 IMPORTANT: When calling tools, if an argument is optional, do not set it. Never pass null for optional parameters.`;
 
