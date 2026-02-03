@@ -29,7 +29,7 @@ const arcadeToolsConfig = {
   // Add specific individual tools (Gmail tools, etc.)
   individualTools: [
     "Gmail_ListEmails",
-    "Gmail_SendEmail", 
+    "Gmail_SendEmail",
     "Gmail_WhoAmI",
   ],
   // Maximum tools to fetch per MCP server

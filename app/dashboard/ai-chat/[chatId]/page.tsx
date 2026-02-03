@@ -77,19 +77,19 @@ export default function ChatPageClient() {
           const result =
             trigger === "regenerate-message"
               ? await client.aiChat.regenerate(
-                  {
-                    chatId,
-                    messages: apiMessages,
-                  },
-                  { signal: abortSignal }
-                )
+                {
+                  chatId,
+                  messages: apiMessages,
+                },
+                { signal: abortSignal }
+              )
               : await client.aiChat.send(
-                  {
-                    chatId,
-                    messages: apiMessages,
-                  },
-                  { signal: abortSignal }
-                );
+                {
+                  chatId,
+                  messages: apiMessages,
+                },
+                { signal: abortSignal }
+              );
 
           return eventIteratorToUnproxiedDataStream(result);
         },
@@ -163,7 +163,7 @@ export default function ChatPageClient() {
   const hasMessages = messages.length > 0;
 
   return (
-    <div className="flex h-full min-w-0 flex-col">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       <ChatHeader title={chat.title} />
 
       <Conversation className="flex-1">

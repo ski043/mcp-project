@@ -168,8 +168,8 @@ export function ChatSidebar() {
   const allChats = chatsData?.pages.flatMap((page) => page.chats) ?? [];
   const filteredChats = searchQuery
     ? allChats.filter((chat) =>
-        chat.title.toLowerCase().includes(searchQuery.toLowerCase())
-      )
+      chat.title.toLowerCase().includes(searchQuery.toLowerCase())
+    )
     : allChats;
 
   const groupedChats = groupChatsByDate(filteredChats);

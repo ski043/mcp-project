@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateText } from "ai";
-import Arcade from "@arcadeai/arcadejs";
+import { generateText, stepCountIs, type ToolSet } from "ai";
+import { Arcade } from "@arcadeai/arcadejs";
+import {
+  toZodToolSet,
+  executeOrAuthorizeZodTool,
+} from "@arcadeai/arcadejs/lib";
 
 // Hobby: max 60s, Pro: max 300s
 export const maxDuration = 60;
@@ -11,28 +15,6 @@ import { AVAILABLE_MODELS } from "@/lib/ai-models";
 
 const arcadeClient = new Arcade({ apiKey: env.ARCADE_API_KEY });
 
-// Type definitions
-interface NewsArticle {
-  title: string;
-  publisher: string;
-  link: string;
-  publish_time: string;
-}
-
-interface HoldingData {
-  ticker: string;
-  quantity: number;
-  purchasePrice: number;
-  purchaseDate: Date;
-  currentPrice: number | null;
-  currentValue: number | null;
-  gainLoss: number | null;
-  gainLossPercent: number | null;
-  companyInfo: Record<string, unknown>;
-  news: NewsArticle[];
-  historicalPrices: unknown[];
-}
-
 // Get default model (Claude)
 const DEFAULT_MODEL =
   AVAILABLE_MODELS.find((m) => m.id.includes("claude"))?.id ||
@@ -41,104 +23,78 @@ const DEFAULT_MODEL =
 // Default output channels for scheduled reports
 const DEFAULT_OUTPUT_CHANNELS = ["dashboard", "email"];
 
-/**
- * Fetch MCP data for all holdings in a portfolio
- */
-async function fetchHoldingsData(
-  holdings: Array<{
-    ticker: string;
-    quantity: number;
-    purchasePrice: number;
-    purchaseDate: Date;
-  }>,
-  userId: string
-): Promise<HoldingData[]> {
-  const holdingsData = await Promise.all(
-    holdings.map(async (holding) => {
-      try {
-        const [priceRes, companyRes, newsRes, histRes] = await Promise.all([
-          arcadeClient.tools.execute({
-            tool_name: "FinancialMcp.GetStockPrice@1.0.0",
-            input: { ticker: holding.ticker },
-            user_id: userId,
-          }),
-          arcadeClient.tools.execute({
-            tool_name: "FinancialMcp.GetCompanyInfo@1.0.0",
-            input: { ticker: holding.ticker },
-            user_id: userId,
-          }),
-          arcadeClient.tools.execute({
-            tool_name: "FinancialMcp.GetCompanyNews@1.0.0",
-            input: { ticker: holding.ticker, max_articles: 5 },
-            user_id: userId,
-          }),
-          arcadeClient.tools.execute({
-            tool_name: "FinancialMcp.GetHistoricalPrices@1.0.0",
-            input: { ticker: holding.ticker, period: "3mo" },
-            user_id: userId,
-          }),
-        ]);
+// Configuration for which Arcade tools to use in reports
+const arcadeToolsConfig = {
+  mcpServers: ["FinancialMcp"],
+  toolLimit: 30,
+};
 
-        // Parse responses
-        const priceData =
-          typeof priceRes.output?.value === "string"
-            ? JSON.parse(priceRes.output.value)
-            : priceRes.output?.value;
+// Strip null and undefined values from tool inputs
+function stripNullValues(
+  obj: Record<string, unknown>
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== null && value !== undefined) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
 
-        const companyData =
-          typeof companyRes.output?.value === "string"
-            ? JSON.parse(companyRes.output.value)
-            : companyRes.output?.value;
+// Adapter to convert Arcade tools to Vercel AI SDK format
+function toVercelTools(arcadeTools: Record<string, unknown>): ToolSet {
+  const vercelTools: Record<string, unknown> = {};
 
-        const newsData =
-          typeof newsRes.output?.value === "string"
-            ? JSON.parse(newsRes.output.value)
-            : newsRes.output?.value;
+  for (const [name, tool] of Object.entries(arcadeTools)) {
+    const t = tool as {
+      description: string;
+      parameters: unknown;
+      execute: (input: Record<string, unknown>) => Promise<unknown>;
+    };
+    vercelTools[name] = {
+      description: t.description,
+      inputSchema: t.parameters,
+      execute: async (input: Record<string, unknown>) => {
+        const cleanedInput = stripNullValues(input);
+        return t.execute(cleanedInput);
+      },
+    };
+  }
 
-        const historicalData =
-          typeof histRes.output?.value === "string"
-            ? JSON.parse(histRes.output.value)
-            : histRes.output?.value;
+  return vercelTools as ToolSet;
+}
 
-        // Calculate metrics
-        const currentPrice = priceData?.price ?? null;
-        const purchaseValue = holding.purchasePrice * holding.quantity;
-        const currentValue = currentPrice
-          ? currentPrice * holding.quantity
-          : null;
-        const gainLoss = currentValue ? currentValue - purchaseValue : null;
-        const gainLossPercent = gainLoss
-          ? (gainLoss / purchaseValue) * 100
-          : null;
-
-        return {
-          ticker: holding.ticker,
-          quantity: holding.quantity,
-          purchasePrice: holding.purchasePrice,
-          purchaseDate: holding.purchaseDate,
-          currentPrice,
-          currentValue,
-          gainLoss,
-          gainLossPercent,
-          companyInfo: companyData || {},
-          news: newsData?.articles || [],
-          historicalPrices: historicalData?.prices || [],
-        };
-      } catch (error) {
-        console.error(
-          `[Cron] Failed to fetch data for ${holding.ticker}:`,
-          error
-        );
-        return null;
-      }
+// Fetch and convert Arcade tools dynamically for report generation
+async function getArcadeTools(userId: string) {
+  const mcpServerTools = await Promise.all(
+    arcadeToolsConfig.mcpServers.map(async (serverName) => {
+      const response = await arcadeClient.tools.list({
+        toolkit: serverName,
+        limit: arcadeToolsConfig.toolLimit,
+      });
+      return response.items;
     })
   );
 
-  return holdingsData.filter((h): h is HoldingData => h !== null);
+  const allTools = mcpServerTools.flat();
+  const uniqueTools = Array.from(
+    new Map(allTools.map((tool) => [tool.qualified_name, tool])).values()
+  );
+
+  const arcadeTools = toZodToolSet({
+    tools: uniqueTools,
+    client: arcadeClient,
+    userId,
+    executeFactory: executeOrAuthorizeZodTool,
+  });
+
+  return toVercelTools(arcadeTools);
 }
 
 /**
- * Generate report for a single portfolio
+ * Generate report for a single portfolio using agentic AI
+ * The LLM autonomously decides what data to research based on findings
  */
 async function generatePortfolioReport(
   portfolio: {
@@ -154,111 +110,127 @@ async function generatePortfolioReport(
   userEmail: string
 ): Promise<{ success: boolean; reportId?: string; error?: string }> {
   try {
-    console.log(`[Cron] Generating report for portfolio: ${portfolio.name}`);
+    console.log(
+      `[Cron] Starting agentic report generation for portfolio: ${portfolio.name}`
+    );
 
-    // Fetch holdings data
-    const validHoldings = await fetchHoldingsData(portfolio.holdings, userEmail);
-
-    if (validHoldings.length === 0) {
-      return {
-        success: false,
-        error: "Failed to fetch data for any holdings",
-      };
-    }
-
-    // Calculate portfolio-level metrics
-    const totalPurchaseValue = validHoldings.reduce(
+    // Calculate total purchase value for context
+    const totalPurchaseValue = portfolio.holdings.reduce(
       (sum, h) => sum + h.purchasePrice * h.quantity,
       0
     );
-    const totalCurrentValue = validHoldings.reduce(
-      (sum, h) => sum + (h.currentValue || 0),
-      0
-    );
-    const totalGainLoss = totalCurrentValue - totalPurchaseValue;
-    const totalGainLossPercent =
-      totalPurchaseValue > 0 ? (totalGainLoss / totalPurchaseValue) * 100 : 0;
 
-    // Find best and worst performers
-    const sortedByPerformance = [...validHoldings].sort(
-      (a, b) => (b.gainLossPercent || 0) - (a.gainLossPercent || 0)
-    );
-    const bestPerformer = sortedByPerformance[0];
-    const worstPerformer = sortedByPerformance[sortedByPerformance.length - 1];
+    // Fetch Arcade tools dynamically - LLM will decide what to call
+    const tools = await getArcadeTools(userEmail);
 
-    // Build prompts
-    const systemPrompt = `You are a financial analyst generating a comprehensive portfolio analysis report.
+    // Agentic system prompt - tells the LLM to research autonomously
+    const systemPrompt = `You are an autonomous financial analyst agent generating a weekly portfolio report.
 
-Your goal is to provide actionable insights based on:
-- Current market data and stock prices
-- Company fundamentals (sector, industry, market cap)
-- Recent news and market sentiment
-- Historical performance trends
-- Portfolio composition and diversification
+You have access to tools to research each holding. You should:
+1. First, get current prices for all holdings to calculate performance
+2. Identify holdings that need deeper analysis (significant gains/losses, high volatility)
+3. Research company fundamentals for context
+4. Check news for any holdings with notable price movements
+5. Look at historical trends for concerning positions
 
-Format your response as follows:
-1. Executive Summary (2-3 sentences highlighting key findings)
-2. Portfolio Overview & Performance (overall metrics, comparison trends)
-3. Individual Holdings Analysis (for each stock: performance, outlook, risks)
-4. Market Sentiment & News Impact (synthesis of recent news across holdings)
-5. Risk Assessment (concentration risk, sector exposure, volatility)
-6. Recommendations (specific actions: hold, buy more, sell, rebalance)
+IMPORTANT: Be intelligent about your research:
+- If a stock is down significantly, investigate WHY (check news, fundamentals)
+- If a stock is up significantly, check if the gains are sustainable
+- Don't waste time deeply researching stable, boring positions
+- Focus your attention where it matters most
 
-After the report, on a new line, add: SENTIMENT: [bullish|bearish|neutral]
+IMPORTANT: When calling tools, if an argument is optional, do not set it. Never pass null for optional parameters.
 
-Be specific, data-driven, and comprehensive. Target 1000-1500 words.
-Avoid generic advice - reference specific data points and news.`;
+After gathering data, write your report in markdown with these sections:
+## Executive Summary
+2-3 sentences with key findings and overall portfolio health
 
-    const userPrompt = `Analyze this portfolio:
+## Portfolio Performance
+Total value, overall gain/loss, comparison to purchase value
+
+## Holdings Analysis
+For each holding: current performance, key insights, outlook
+Spend more words on holdings that warrant attention
+
+## Market Context & News
+Synthesize relevant news that affects the portfolio
+
+## Risk Assessment
+Concentration risk, sector exposure, any red flags
+
+## Recommendations
+Specific, actionable advice based on your research
+
+Be data-driven and specific. Reference actual numbers and news headlines.
+Target 1000-1500 words for the final report.
+
+At the very end, on a new line, add: SENTIMENT: [bullish|bearish|neutral]`;
+
+    // User prompt with just the holdings - agent will research the rest
+    const holdingsList = portfolio.holdings
+      .map(
+        (h) =>
+          `- ${h.ticker}: ${h.quantity} shares purchased at $${h.purchasePrice.toFixed(2)}${h.purchaseDate ? ` on ${new Date(h.purchaseDate).toLocaleDateString()}` : ""}`
+      )
+      .join("\n");
+
+    const userPrompt = `Analyze this portfolio and generate a comprehensive weekly report.
 
 Portfolio: ${portfolio.name}
-Total Value: $${totalCurrentValue.toFixed(2)}
-Total Gain/Loss: $${totalGainLoss.toFixed(2)} (${totalGainLossPercent.toFixed(2)}%)
-Holdings: ${validHoldings.length}
+Total Purchase Value: $${totalPurchaseValue.toFixed(2)}
+Number of Holdings: ${portfolio.holdings.length}
 
-Best Performer: ${bestPerformer.ticker} (${bestPerformer.gainLossPercent?.toFixed(2)}%)
-Worst Performer: ${worstPerformer.ticker} (${worstPerformer.gainLossPercent?.toFixed(2)}%)
+Holdings:
+${holdingsList}
 
-Holdings Data:
-${validHoldings
-  .map(
-    (h) => `
-${h.ticker} - ${(h.companyInfo as { company_name?: string })?.company_name || "Unknown"}
-- Quantity: ${h.quantity} shares
-- Purchase Price: $${h.purchasePrice.toFixed(2)}
-- Current Price: $${h.currentPrice?.toFixed(2) || "N/A"}
-- Gain/Loss: $${h.gainLoss?.toFixed(2) || "N/A"} (${h.gainLossPercent?.toFixed(2) || "N/A"}%)
-- Sector: ${(h.companyInfo as { sector?: string })?.sector || "Unknown"}
-- Industry: ${(h.companyInfo as { industry?: string })?.industry || "Unknown"}
-- Recent News Headlines: ${h.news.slice(0, 3).map((n) => n.title).join("; ") || "No recent news"}
-`
-  )
-  .join("\n")}
+Use your tools to research each holding and generate insights. Start by getting current prices, then dig deeper into positions that need attention.`;
 
-Provide a comprehensive analysis with actionable recommendations.`;
-
-    // Generate analysis with LLM
-    console.log(`[Cron] Generating AI analysis for ${portfolio.name}...`);
+    // Generate analysis with agentic LLM - allows up to 15 tool calls
+    console.log(`[Cron] Starting agentic AI research for ${portfolio.name}...`);
     const result = await generateText({
       model: DEFAULT_MODEL,
       system: systemPrompt,
       prompt: userPrompt,
+      tools,
+      toolChoice: "auto",
+      stopWhen: stepCountIs(15), // Allow up to 15 tool calls for thorough research
     });
+
+    console.log(
+      `[Cron] Agent completed research with ${result.steps.length} steps for ${portfolio.name}`
+    );
 
     const fullAnalysis = result.text;
 
-    // Extract sentiment
+    // Extract sentiment from the report
     const sentimentMatch = fullAnalysis.match(
       /SENTIMENT:\s*(bullish|bearish|neutral)/i
     );
-    const sentiment = sentimentMatch
-      ? sentimentMatch[1].toLowerCase()
-      : "neutral";
+    let sentiment = "neutral";
+    if (sentimentMatch) {
+      sentiment = sentimentMatch[1].toLowerCase();
+    } else {
+      // Fallback: analyze content for sentiment signals
+      const lowerText = fullAnalysis.toLowerCase();
+      const bullishSignals = (
+        lowerText.match(
+          /bullish|strong|growth|outperform|buy|upside|positive/g
+        ) || []
+      ).length;
+      const bearishSignals = (
+        lowerText.match(
+          /bearish|weak|decline|underperform|sell|downside|negative|risk|concern/g
+        ) || []
+      ).length;
+      if (bullishSignals > bearishSignals + 2) sentiment = "bullish";
+      else if (bearishSignals > bullishSignals + 2) sentiment = "bearish";
+    }
+
     const summary = fullAnalysis
       .replace(/SENTIMENT:\s*(bullish|bearish|neutral)/i, "")
       .trim();
 
-    // Save report
+    // Save report with context about what was researched
     const report = await prisma.report.create({
       data: {
         portfolioId: portfolio.id,
@@ -268,27 +240,17 @@ Provide a comprehensive analysis with actionable recommendations.`;
         triggerType: "scheduled",
         model: DEFAULT_MODEL,
         contextData: JSON.stringify({
-          metrics: {
-            totalCurrentValue,
-            totalGainLoss,
-            totalGainLossPercent,
-            holdingsCount: validHoldings.length,
-          },
-          holdings: validHoldings.map((h) => ({
+          portfolioName: portfolio.name,
+          totalPurchaseValue,
+          holdingsCount: portfolio.holdings.length,
+          holdings: portfolio.holdings.map((h) => ({
             ticker: h.ticker,
             quantity: h.quantity,
-            currentPrice: h.currentPrice,
-            gainLoss: h.gainLoss,
-            gainLossPercent: h.gainLossPercent,
+            purchasePrice: h.purchasePrice,
+            purchaseDate: h.purchaseDate,
           })),
-          bestPerformer: {
-            ticker: bestPerformer.ticker,
-            gainLossPercent: bestPerformer.gainLossPercent,
-          },
-          worstPerformer: {
-            ticker: worstPerformer.ticker,
-            gainLossPercent: worstPerformer.gainLossPercent,
-          },
+          agentSteps: result.steps.length,
+          generatedAt: new Date().toISOString(),
         }),
       },
     });

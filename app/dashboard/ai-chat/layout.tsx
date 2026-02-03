@@ -22,9 +22,9 @@ export default async function AIChatLayout({
 
   return (
     <HydrateClient client={queryClient}>
-      <div className="flex h-[calc(100vh-4rem)]  rounded-lg overflow-hidden border bg-background shadow-sm">
+      <div className="flex h-full min-h-0 rounded-lg overflow-hidden border bg-background shadow-sm">
         <ChatSidebar />
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <div className="flex-1 flex min-h-0 flex-col min-w-0 overflow-hidden">
           {children}
         </div>
       </div>

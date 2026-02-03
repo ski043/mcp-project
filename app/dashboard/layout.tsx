@@ -15,6 +15,7 @@ export default async function DashboardLayout({
 
   return (
     <SidebarProvider
+      className="h-svh"
       style={
         {
           "--sidebar-width": "calc(var(--spacing) * 72)",
@@ -25,11 +26,11 @@ export default async function DashboardLayout({
       <HydrateClient client={queryClient}>
         <AppSidebar variant="inset" />
       </HydrateClient>
-      <SidebarInset>
+      <SidebarInset className="min-h-0">
         <SiteHeader />
-        <div className="flex flex-1 flex-col">
-          <div className="@container/main flex flex-1 flex-col gap-2">
-            <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6 px-4">
+        <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+          <div className="@container/main flex flex-1 min-h-0 flex-col gap-2 overflow-hidden">
+            <div className="flex flex-1 min-h-0 flex-col gap-4 py-4 md:gap-6 md:py-6 px-4 overflow-hidden">
               {children}
             </div>
           </div>
