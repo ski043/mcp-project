@@ -32,7 +32,7 @@ const arcadeToolsConfig = {
     "Gmail_SendEmail",
     "Gmail_WhoAmI",
   ],
-  // Maximum tools to fetch per MCP server
+  // Maximum tools to fetch per MCP server. can be increased if needed.
   toolLimit: 30,
 };
 
